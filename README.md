@@ -43,7 +43,7 @@ dotnet test .\tests\EasyBalance.Tests\EasyBalance.Tests.csproj -c Release
 .\src\EasyBalance.UI\bin\Release\net8.0-windows\EasyBalance.UI.exe
 ```
 
-安装服务时，将发布包中的所有文件一起放入固定目录，不要拆开共用运行时文件，再在提升权限的终端运行：
+安装服务时，将发布包中的所有文件一起放入固定目录，不要拆开目录结构，在提升权限的 PowerShell 中运行包根目录的 `Install-EasyBalance.ps1`。脚本会注册并启动 Service；UI 启动前必须先完成此步骤。
 
 ```powershell
 sc.exe create EasyBalance binPath= "C:\Program Files\EasyBalance\EasyBalance.Service.exe" start= auto

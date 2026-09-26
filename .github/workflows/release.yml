@@ -171,6 +171,8 @@ jobs:
             Copy-Item -Destination (Join-Path $packageRoot 'UI') -Recurse -Force
           Copy-Item -LiteralPath '.\README.md' -Destination (Join-Path $packageRoot 'README.md')
           Copy-Item -LiteralPath '.\THIRD_PARTY_NOTICES.md' -Destination (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md')
+          Copy-Item -LiteralPath '.\scripts\Install-EasyBalance.ps1' -Destination (Join-Path $packageRoot 'Install-EasyBalance.ps1')
+          Copy-Item -LiteralPath '.\scripts\Uninstall-EasyBalance.ps1' -Destination (Join-Path $packageRoot 'Uninstall-EasyBalance.ps1')
           Copy-Item -LiteralPath $executables[0].FullName -Destination (Join-Path $serviceCore 'sing-box.exe') -Force
           $packageReleaseTag = if ($env:GITHUB_REF -eq 'refs/heads/main') {
             "v0.1.0-preview.$env:GITHUB_RUN_NUMBER"
