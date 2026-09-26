@@ -1,38 +1,30 @@
-using System.Windows;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
-using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Windows;
+using EasyBalance.Shared;
 
 namespace EasyBalance.UI;
 
 public partial class App : Application
 {
+    private static string InstallDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "EasyBalance");
+    private static string ServicePath => Path.Combine(InstallDirectory, "EasyBalance.Service.exe");
+    private static string CorePath => Path.Combine(InstallDirectory, "core", "sing-box.exe");
+
     protected override async void OnStartup(StartupEventArgs e)
     {
-        DispatcherUnhandledException += (_, args) =>
-        {
-            try
-            {
-                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EasyBalance", "logs");
-                Directory.CreateDirectory(directory);
-                File.AppendAllText(Path.Combine(directory, "ui-startup.log"), $"{DateTimeOffset.UtcNow:O}{Environment.NewLine}{args.Exception}{Environment.NewLine}", Encoding.UTF8);
-            }
-            catch { }
-            MessageBox.Show(args.Exception.Message, "EasyBalance UI error", MessageBoxButton.OK, MessageBoxImage.Error);
-            args.Handled = true;
-        };
         base.OnStartup(e);
+        DispatcherUnhandledException += (_, args) => { Record(args.Exception); MessageBox.Show(args.Exception.Message, "EasyBalance", MessageBoxButton.OK, MessageBoxImage.Error); args.Handled = true; };
         if (e.Args.Contains("--install-payload", StringComparer.OrdinalIgnoreCase))
         {
-            try { InstallPayload(); Environment.ExitCode = 0; }
-            catch (Exception exception) { LogStartupException(exception); Environment.ExitCode = 1; }
-            Shutdown(Environment.ExitCode);
+            try { InstallPayload(); Shutdown(0); }
+            catch (Exception exception) { Record(exception); Shutdown(1); }
             return;
         }
-
         try
         {
             await EnsureServiceAsync();
@@ -40,48 +32,50 @@ public partial class App : Application
         }
         catch (Exception exception)
         {
-            LogStartupException(exception);
+            Record(exception);
             MessageBox.Show(exception.Message, "EasyBalance startup", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
 
-    private static string InstallDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "EasyBalance");
-
-    private static string ServicePath => Path.Combine(InstallDirectory, "EasyBalance.Service.exe");
-    private static string CorePath => Path.Combine(InstallDirectory, "core", "sing-box.exe");
-
     private static async Task EnsureServiceAsync()
     {
         if (!await IsPipeAvailableAsync() || !IsInstalledPayloadCurrent())
         {
-            using var elevated = Process.Start(new ProcessStartInfo
+            using var setup = Process.Start(new ProcessStartInfo
             {
-                FileName = Environment.ProcessPath ?? throw new InvalidOperationException("The UI executable path is unavailable."),
-                Arguments = "--install-payload",
-                UseShellExecute = true,
-                Verb = "runas",
+                FileName = Environment.ProcessPath ?? throw new InvalidOperationException("The application path is unavailable."),
+                Arguments = "--install-payload", Verb = "runas", UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden
-            }) ?? throw new InvalidOperationException("Windows could not start the elevated EasyBalance setup.");
-            await elevated.WaitForExitAsync();
-            if (elevated.ExitCode != 0) throw new InvalidOperationException("EasyBalance could not install its background service. Approve the administrator prompt and try again.");
+            }) ?? throw new InvalidOperationException("Could not start service setup.");
+            await setup.WaitForExitAsync();
+            if (setup.ExitCode != 0) throw new InvalidOperationException("Service installation failed. Approve the administrator prompt and try again.");
         }
-
         for (var attempt = 0; attempt < 20; attempt++)
         {
             if (await IsPipeAvailableAsync()) return;
             await Task.Delay(500);
         }
-        throw new TimeoutException("The EasyBalance background service did not become available.");
+        throw new TimeoutException("The EasyBalance service did not become available.");
     }
 
     private static async Task<bool> IsPipeAvailableAsync()
     {
-        await using var pipe = new NamedPipeClientStream(".", EasyBalance.Shared.IpcConstants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var pipe = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         try { await pipe.ConnectAsync(400); return pipe.IsConnected; }
-        catch (TimeoutException) { return false; }
-        catch (IOException) { return false; }
+        catch (Exception exception) when (exception is TimeoutException or IOException) { return false; }
+    }
+
+    private static bool IsInstalledPayloadCurrent() =>
+        Matches("EasyBalance.Payload.Service.exe", ServicePath) && Matches("EasyBalance.Payload.core.sing-box.exe", CorePath);
+
+    private static bool Matches(string resourceName, string path)
+    {
+        if (!File.Exists(path)) return false;
+        using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+        if (source is null) return false;
+        using var target = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return SHA256.HashData(source).SequenceEqual(SHA256.HashData(target));
     }
 
     private static void InstallPayload()
@@ -93,61 +87,49 @@ public partial class App : Application
             RunSc("stop EasyBalance", 1062);
             for (var attempt = 0; attempt < 60; attempt++)
             {
-                var processes = Process.GetProcessesByName("EasyBalance.Service");
-                try
-                {
-                    if (processes.All(process => process.HasExited)) break;
-                }
-                finally { foreach (var process in processes) process.Dispose(); }
-                if (attempt == 59) throw new TimeoutException("The previous EasyBalance service did not stop in time.");
+                using var processes = new ProcessCollection(Process.GetProcessesByName("EasyBalance.Service"));
+                if (processes.Items.All(process => process.HasExited)) break;
+                if (attempt == 59) throw new TimeoutException("The previous service did not stop.");
                 Thread.Sleep(500);
             }
         }
         WriteResource("EasyBalance.Payload.Service.exe", ServicePath);
         WriteResource("EasyBalance.Payload.core.sing-box.exe", CorePath);
-        var serviceArguments = "binPath= \"" + ServicePath + "\" start= auto DisplayName= \"EasyBalance routing service\"";
-        if (!installed)
-            RunSc("create EasyBalance " + serviceArguments);
-        else
-            RunSc("config EasyBalance " + serviceArguments);
+        var parameters = "binPath= \"" + ServicePath + "\" start= auto DisplayName= \"EasyBalance routing service\"";
+        RunSc((installed ? "config" : "create") + " EasyBalance " + parameters);
         RunSc("start EasyBalance", 1056);
     }
 
-    private static bool IsInstalledPayloadCurrent() =>
-        MatchesResource("EasyBalance.Payload.Service.exe", ServicePath) &&
-        MatchesResource("EasyBalance.Payload.core.sing-box.exe", CorePath);
-
-    private static bool MatchesResource(string resourceName, string path)
+    private sealed class ProcessCollection(Process[] items) : IDisposable
     {
-        if (!File.Exists(path)) return false;
-        using var packaged = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
-        if (packaged is null) return false;
-        using var installed = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return SHA256.HashData(packaged).SequenceEqual(SHA256.HashData(installed));
+        public Process[] Items { get; } = items;
+        public void Dispose() { foreach (var item in Items) item.Dispose(); }
     }
 
-    private static void WriteResource(string resourceName, string destination)
+    private static void WriteResource(string resourceName, string path)
     {
         using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"The release payload is missing {resourceName}.");
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.Read);
+            ?? throw new InvalidOperationException("Release payload is missing: " + resourceName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var target = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         source.CopyTo(target);
     }
 
-    private static int RunSc(string arguments, params int[] allowedExitCodes)
+    private static int RunSc(string arguments, params int[] allowed)
     {
         using var process = Process.Start(new ProcessStartInfo("sc.exe", arguments)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true
-        }) ?? throw new InvalidOperationException("Windows could not start the Service Control Manager.");
+        }) ?? throw new InvalidOperationException("Could not launch Service Control Manager.");
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
         process.WaitForExit();
-        if (process.ExitCode != 0 && !allowedExitCodes.Contains(process.ExitCode))
-            throw new InvalidOperationException($"Service command failed ({arguments}, exit {process.ExitCode}): {process.StandardOutput.ReadToEnd()} {process.StandardError.ReadToEnd()}");
+        if (process.ExitCode != 0 && !allowed.Contains(process.ExitCode))
+            throw new InvalidOperationException($"Service command failed ({arguments}): {output} {error}");
         return process.ExitCode;
     }
 
-    private static void LogStartupException(Exception exception)
+    private static void Record(Exception exception)
     {
         try
         {

@@ -1,49 +1,64 @@
-<Window x:Class="EasyBalance.UI.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EasyBalance" Width="1460" Height="900" MinWidth="900" MinHeight="650"
-        WindowStartupLocation="CenterScreen" Background="{DynamicResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13">
-    <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="214" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}">
-            <DockPanel LastChildFill="True">
-                <StackPanel DockPanel.Dock="Top" Margin="20,24,15,26">
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentBrush}" VerticalAlignment="Center"><TextBlock Text="E" Foreground="White" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                        <StackPanel Margin="11,0,0,0" VerticalAlignment="Center"><TextBlock Text="EasyBalance" Foreground="White" FontSize="16" FontWeight="SemiBold" /><TextBlock Text="NETWORK CONTROL" Foreground="{DynamicResource SidebarMutedTextBrush}" FontSize="9" FontWeight="Bold" Margin="0,3,0,0" /></StackPanel>
-                    </StackPanel>
-                </StackPanel>
-                <StackPanel DockPanel.Dock="Bottom" Margin="10,0,10,18">
-                    <Border Height="1" Background="{DynamicResource SidebarMutedTextBrush}" Opacity="0.28" Margin="12,0,12,13" />
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Advanced" Tag="{Binding IsAdvancedActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Settings" /></StackPanel></Button>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" Tag="{Binding IsDiagnosticsActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Diagnostics" /></StackPanel></Button>
-                    <TextBlock Text="Local service control" Foreground="{DynamicResource SidebarMutedTextBrush}" FontSize="10" Margin="16,14,0,0" />
-                </StackPanel>
-                <StackPanel>
-                    <TextBlock Text="OVERVIEW" Foreground="{DynamicResource SidebarMutedTextBrush}" FontSize="10" FontWeight="Bold" Margin="23,0,0,8" />
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" Tag="{Binding IsDashboardActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Overview" /></StackPanel></Button>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Traffic" Tag="{Binding IsTrafficActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Live traffic" /></StackPanel></Button>
-                    <TextBlock Text="CONFIGURE" Foreground="{DynamicResource SidebarMutedTextBrush}" FontSize="10" FontWeight="Bold" Margin="23,25,0,8" />
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Rules" Tag="{Binding IsRulesActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71D;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Application rules" /></StackPanel></Button>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Interfaces" Tag="{Binding IsInterfacesActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8AB;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Interfaces" /></StackPanel></Button>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Failover" Tag="{Binding IsFailoverActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8D4;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Policies &amp; failover" /></StackPanel></Button>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Logs" Tag="{Binding IsLogsActive}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D5;" FontFamily="Segoe MDL2 Assets" FontSize="15" Width="28" /><TextBlock Text="Event log" /></StackPanel></Button>
-                </StackPanel>
-            </DockPanel>
-        </Border>
-        <Grid Grid.Column="1" Margin="25,22,25,16">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-            <Grid Margin="0,0,0,20">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock Text="{Binding CurrentPage.Title}" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="{Binding CurrentPage.Description}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" /></StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="10,8" Margin="0,0,8,0"><StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="{Binding ConnectionLabel, Converter={StaticResource HealthBrushConverter}}" VerticalAlignment="Center" Margin="0,0,7,0" /><TextBlock Text="{Binding ConnectionLabel}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" /></StackPanel></Border>
-                    <Button Style="{StaticResource SecondaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" Content="Refresh" />
-                    <Button Style="{StaticResource SecondaryButton}" Command="{Binding ToggleThemeCommand}" Content="{Binding ThemeButtonText}" />
-                </StackPanel>
-            </Grid>
-            <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
-            <TextBlock Grid.Row="2" Text="EasyBalance · Service continues after this window closes" Margin="0,12,0,0" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
-        </Grid>
-    </Grid>
+<Window x:Class="EasyBalance.UI.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="EasyBalance" Width="1180" Height="800" MinWidth="650" MinHeight="550" WindowStartupLocation="CenterScreen">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,15">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel><TextBlock Text="EasyBalance" FontSize="24" FontWeight="Bold"/><TextBlock Text="Network routing control" Style="{StaticResource Muted}"/></StackPanel>
+        <Button Grid.Column="1" Content="Refresh" Click="Refresh_Click" VerticalAlignment="Center"/>
+        <Button x:Name="ThemeButton" Grid.Column="2" Content="Dark mode" Click="Theme_Click" VerticalAlignment="Center"/>
+      </Grid>
+    </Border>
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,9">
+      <TextBlock x:Name="FeedbackText" Text="Connecting to service…" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"/>
+    </Border>
+    <TabControl x:Name="Pages" SelectionChanged="Pages_SelectionChanged" Margin="16,12,16,0">
+      <TabItem Header="Overview">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30">
+          <TextBlock Text="Routing overview" Style="{StaticResource Heading}"/>
+          <TextBlock Text="Control the service and see its current health." Style="{StaticResource Muted}" Margin="0,0,0,18"/>
+          <WrapPanel>
+            <Border Style="{StaticResource Card}" MinWidth="240"><StackPanel><TextBlock Text="Routing" Style="{StaticResource Muted}"/><TextBlock x:Name="RoutingState" Text="Loading" FontSize="27" FontWeight="SemiBold" Margin="0,8"/><StackPanel Orientation="Horizontal"><Button Content="Enable" Style="{StaticResource PrimaryButton}" Click="Enable_Click"/><Button Content="Disable" Click="Disable_Click"/></StackPanel></StackPanel></Border>
+            <Border Style="{StaticResource Card}" MinWidth="220"><StackPanel><TextBlock Text="Core" Style="{StaticResource Muted}"/><TextBlock x:Name="CoreState" Text="Loading" FontSize="27" FontWeight="SemiBold" Margin="0,8"/><TextBlock x:Name="CoreDetail" Style="{StaticResource Muted}"/></StackPanel></Border>
+            <Border Style="{StaticResource Card}" MinWidth="220"><StackPanel><TextBlock Text="Interfaces" Style="{StaticResource Muted}"/><TextBlock x:Name="AdapterSummary" Text="Loading" FontSize="27" FontWeight="SemiBold" Margin="0,8"/><TextBlock Text="Allowed physical / total" Style="{StaticResource Muted}"/></StackPanel></Border>
+          </WrapPanel>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Active policy routes" Style="{StaticResource Subheading}"/><DataGrid x:Name="RouteGrid" MinHeight="120"><DataGrid.Columns><DataGridTextColumn Header="Policy" Binding="{Binding Name}" Width="2*"/><DataGridTextColumn Header="IPv4" Binding="{Binding ActiveIPv4Interface}" Width="2*"/><DataGridTextColumn Header="IPv6" Binding="{Binding ActiveIPv6Interface}" Width="2*"/></DataGrid.Columns></DataGrid></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Service message" Style="{StaticResource Subheading}"/><TextBlock x:Name="LastErrorText" Style="{StaticResource Muted}" Text="No active error"/></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="Live monitor">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30">
+          <TextBlock Text="Live traffic" Style="{StaticResource Heading}"/><TextBlock Text="Per interface speed, cumulative traffic and active connections. Refreshes every 2 seconds while this page is open." Style="{StaticResource Muted}" Margin="0,0,0,16"/>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Outbound interfaces" Style="{StaticResource Subheading}"/><ItemsControl x:Name="OutboundGrid"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Border Background="{DynamicResource PageBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16" Width="305" Margin="0,0,12,12"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Grid.Column="1" Text="{Binding State}" Foreground="{DynamicResource MutedBrush}"/></Grid><Grid Margin="0,14,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="UPLOAD" Style="{StaticResource Muted}" FontSize="11"/><TextBlock Text="{Binding UploadRate}" FontSize="21" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/></StackPanel><StackPanel Grid.Column="1"><TextBlock Text="DOWNLOAD" Style="{StaticResource Muted}" FontSize="11"/><TextBlock Text="{Binding DownloadRate}" FontSize="21" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/></StackPanel></Grid><TextBlock Foreground="{DynamicResource MutedBrush}"><Run Text="Total ↑ "/><Run Text="{Binding UploadTotal}"/><Run Text="   ↓ "/><Run Text="{Binding DownloadTotal}"/></TextBlock><TextBlock Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"><Run Text="Connections  "/><Run Text="{Binding Connections}"/><Run Text="    Target  "/><Run Text="{Binding Target}"/></TextBlock></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><TextBlock x:Name="TelemetryMessage" Style="{StaticResource Muted}" Margin="0,4,0,0"/></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Dual WAN target" Style="{StaticResource Subheading}"/><TextBlock x:Name="RatioHelp" Style="{StaticResource Muted}" Text="Enable load balance on the default policy and choose two interfaces to adjust live traffic."/><Grid Margin="0,16,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Slider x:Name="RatioSlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="RatioSlider_ValueChanged" IsEnabled="False" VerticalAlignment="Center"/><TextBlock x:Name="RatioText" Grid.Column="1" Text="50 / 50" FontSize="18" FontWeight="SemiBold" Margin="16,0,0,0"/></Grid><TextBlock Text="Changes affect new connections; existing connections remain on their current exit." Style="{StaticResource Muted}"/></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Active connections" Style="{StaticResource Subheading}"/><DataGrid x:Name="ConnectionGrid" MinHeight="160" MaxHeight="350" HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="Process" Binding="{Binding Process}" MinWidth="120"/><DataGridTextColumn Header="Destination" Binding="{Binding Destination}" MinWidth="230"/><DataGridTextColumn Header="Actual exit" Binding="{Binding ActualOutbound}" MinWidth="120"/><DataGridTextColumn Header="Expected exit" Binding="{Binding PredictedOutbound}" MinWidth="190"/><DataGridTextColumn Header="Uploaded" Binding="{Binding UploadText}" MinWidth="90"/><DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadText}" MinWidth="90"/></DataGrid.Columns></DataGrid></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="Interfaces">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30"><TextBlock Text="Network interfaces" Style="{StaticResource Heading}"/><TextBlock Text="Select an interface to allow, exclude, or probe its current IPv4/IPv6 health." Style="{StaticResource Muted}" Margin="0,0,0,16"/>
+          <Border Style="{StaticResource Card}"><StackPanel><DataGrid x:Name="AdapterGrid" MinHeight="250" MaxHeight="470" SelectionChanged="AdapterGrid_SelectionChanged" HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="Interface" Binding="{Binding Name}" MinWidth="170"/><DataGridTextColumn Header="Link" Binding="{Binding OperationalStatus}" MinWidth="90"/><DataGridTextColumn Header="IPv4" Binding="{Binding IPv4Health}" MinWidth="90"/><DataGridTextColumn Header="IPv6" Binding="{Binding IPv6Health}" MinWidth="90"/><DataGridTextColumn Header="Address" Binding="{Binding IPv4Address}" MinWidth="140"/><DataGridTextColumn Header="Gateway" Binding="{Binding IPv4Gateway}" MinWidth="140"/><DataGridTextColumn Header="Allowed" Binding="{Binding AllowedText}" MinWidth="70"/></DataGrid.Columns></DataGrid><WrapPanel Margin="0,14,0,0"><Button x:Name="AllowButton" Content="Allow" Click="Allow_Click"/><Button x:Name="ExcludeButton" Content="Exclude" Click="Exclude_Click"/><Button Content="Probe IPv4" Click="Probe4_Click"/><Button Content="Probe IPv6" Click="Probe6_Click"/></WrapPanel><TextBlock x:Name="AdapterDetail" Style="{StaticResource Muted}" Text="Select an interface."/></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="Policies">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30"><TextBlock Text="Routing policies" Style="{StaticResource Heading}"/><TextBlock Text="Choose primary and fallback interfaces, then save the complete policy." Style="{StaticResource Muted}" Margin="0,0,0,16"/>
+          <Border Style="{StaticResource Card}"><StackPanel><ListBox x:Name="PolicyList" DisplayMemberPath="Name" Height="125" SelectionChanged="PolicyList_SelectionChanged"/><WrapPanel Margin="0,12,0,0"><Button Content="New policy" Click="NewPolicy_Click"/><Button Content="Make default" Click="DefaultPolicy_Click"/><Button Content="Delete selected" Click="DeletePolicy_Click"/></WrapPanel></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Policy editor" Style="{StaticResource Subheading}"/><TextBlock Text="Name" Style="{StaticResource Muted}"/><TextBox x:Name="PolicyName"/><TextBlock Text="Primary interface" Style="{StaticResource Muted}"/><ComboBox x:Name="PrimaryInterface" DisplayMemberPath="Name" SelectedValuePath="Id"/><TextBlock Text="Fallback interface" Style="{StaticResource Muted}"/><ComboBox x:Name="FallbackInterface" DisplayMemberPath="Name" SelectedValuePath="Id"/><WrapPanel><CheckBox x:Name="PolicyEnabled" Content="Enabled"/><CheckBox x:Name="FailoverEnabled" Content="Automatic failover"/><CheckBox x:Name="AutoFailback" Content="Automatic failback"/><CheckBox x:Name="LoadBalanceEnabled" Content="Dual WAN load balance (default policy only)"/></WrapPanel><Button Content="Save policy" Style="{StaticResource PrimaryButton}" Click="SavePolicy_Click" HorizontalAlignment="Left"/></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="App rules">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30"><TextBlock Text="Application rules" Style="{StaticResource Heading}"/><TextBlock Text="Route a specific executable or process name through a policy." Style="{StaticResource Muted}" Margin="0,0,0,16"/>
+          <Border Style="{StaticResource Card}"><StackPanel><DataGrid x:Name="RuleGrid" Height="210" SelectionChanged="RuleGrid_SelectionChanged"><DataGrid.Columns><DataGridTextColumn Header="Name" Binding="{Binding DisplayName}" Width="*"/><DataGridTextColumn Header="Executable" Binding="{Binding ExecutablePath}" Width="2*"/><DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="*"/><DataGridTextColumn Header="Enabled" Binding="{Binding Enabled}" Width="75"/></DataGrid.Columns></DataGrid><WrapPanel Margin="0,12,0,0"><Button Content="New rule" Click="NewRule_Click"/><Button Content="Delete selected" Click="DeleteRule_Click"/></WrapPanel></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Rule editor" Style="{StaticResource Subheading}"/><TextBlock Text="Display name" Style="{StaticResource Muted}"/><TextBox x:Name="RuleName"/><TextBlock Text="Executable path (preferred for exact matching)" Style="{StaticResource Muted}"/><DockPanel><Button DockPanel.Dock="Right" Content="Browse…" Click="BrowseRule_Click"/><TextBox x:Name="RulePath"/></DockPanel><TextBlock Text="Process name (used when path is empty)" Style="{StaticResource Muted}"/><TextBox x:Name="RuleProcess"/><TextBlock Text="Policy" Style="{StaticResource Muted}"/><ComboBox x:Name="RulePolicy" DisplayMemberPath="Name" SelectedValuePath="Id"/><CheckBox x:Name="RuleEnabled" Content="Enabled"/><Button Content="Save rule" Style="{StaticResource PrimaryButton}" Click="SaveRule_Click" HorizontalAlignment="Left"/></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="Logs">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30"><TextBlock Text="Service logs" Style="{StaticResource Heading}"/><Button Content="Refresh logs" Click="RefreshLogs_Click" HorizontalAlignment="Left"/><DataGrid x:Name="LogGrid" MinHeight="400" Margin="0,12,0,0"><DataGrid.Columns><DataGridTextColumn Header="Time" Binding="{Binding TimeText}" MinWidth="150"/><DataGridTextColumn Header="Level" Binding="{Binding Level}" MinWidth="100"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" MinWidth="130"/><DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" MinWidth="250"/></DataGrid.Columns></DataGrid></StackPanel></ScrollViewer>
+      </TabItem>
+      <TabItem Header="Diagnostics">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4,20,4,30"><TextBlock Text="Diagnostics &amp; maintenance" Style="{StaticResource Heading}"/><TextBlock Text="Inspect service counters, validate the generated configuration, or save a diagnostic archive." Style="{StaticResource Muted}" Margin="0,0,0,16"/>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Current counters" Style="{StaticResource Subheading}"/><TextBlock x:Name="DiagnosticsText" Text="Loading…" FontFamily="Consolas" TextWrapping="Wrap"/></StackPanel></Border>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Actions" Style="{StaticResource Subheading}"/><WrapPanel><Button Content="Validate configuration" Click="Validate_Click"/><Button Content="Restart core" Click="Restart_Click"/><Button Content="Export diagnostics…" Style="{StaticResource PrimaryButton}" Click="Export_Click"/></WrapPanel><CheckBox x:Name="RedactIps" Content="Redact IP addresses in export" IsChecked="True"/></StackPanel></Border>
+        </StackPanel></ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
 </Window>

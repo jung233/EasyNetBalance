@@ -380,7 +380,7 @@ public sealed class SingBoxConfigGenerator
         }
 
         string ipv6;
-        Span<byte> ula = stackalloc byte[6];
+        var ula = new byte[16];
         for (var attempt = 0; ; attempt++)
         {
             if (attempt >= 512)
@@ -388,14 +388,17 @@ public sealed class SingBoxConfigGenerator
                 throw new InvalidOperationException("Could not choose a non-conflicting IPv6 ULA TUN prefix.");
             }
 
-            RandomNumberGenerator.Fill(ula);
-            var candidateAddress = IPAddress.Parse($"fd{ula[0]:x2}{ula[1]:x2}:{ula[2]:x2}{ula[3]:x2}:{ula[4]:x2}{ula[5]:x2}::");
+            Array.Clear(ula);
+            ula[0] = 0xfd;
+            RandomNumberGenerator.Fill(ula.AsSpan(1, 5));
+            var candidateAddress = new IPAddress(ula);
             if (knownPrefixes.Any(prefix => PrefixesOverlap(new NetworkPrefix(candidateAddress, 126), prefix)))
             {
                 continue;
             }
 
-            ipv6 = $"{candidateAddress}1/126";
+            ula[15] = 1;
+            ipv6 = $"{new IPAddress(ula)}/126";
             break;
         }
 

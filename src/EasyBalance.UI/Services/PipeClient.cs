@@ -1,71 +1,58 @@
-using System.IO.Pipes;
 using System.IO;
+using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EasyBalance.Shared;
 
 namespace EasyBalance.UI.Services;
 
 public sealed class PipeClient
 {
-    public const string PipeName = IpcConstants.PipeName;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    public static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
     public async Task<JsonElement> CallAsync(string method, object? payload = null, CancellationToken cancellationToken = default)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds(method)));
-        await using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        timeout.CancelAfter(TimeSpan.FromSeconds(method is "GetConnectionTelemetry" ? 8 : 45));
+        await using var pipe = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         try
         {
             await pipe.ConnectAsync(timeout.Token);
-            var request = new PipeRequest(method, payload is null ? null : JsonSerializer.SerializeToElement(payload, JsonOptions));
-            var requestLine = JsonSerializer.Serialize(request, IpcJsonContext.Default.PipeRequest) + "\n";
-            var bytes = Encoding.UTF8.GetBytes(requestLine);
-            await pipe.WriteAsync(bytes, timeout.Token);
+            var request = new PipeRequest(method, payload is null ? null : JsonSerializer.SerializeToElement(payload, Options));
+            await pipe.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request, IpcJsonContext.Default.PipeRequest) + "\n"), timeout.Token);
             await pipe.FlushAsync(timeout.Token);
-
-            using var reader = new StreamReader(pipe, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
-            var responseLine = await reader.ReadLineAsync(timeout.Token);
-            if (string.IsNullOrWhiteSpace(responseLine))
-            {
-                throw new InvalidDataException("The EasyBalance service returned an empty response.");
-            }
-
-            var response = JsonSerializer.Deserialize(responseLine, IpcJsonContext.Default.PipeResponse)
-                ?? throw new InvalidDataException("The EasyBalance service returned an unreadable response.");
-            if (!response.Success)
-            {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(response.Error)
-                    ? "The service could not complete the request."
-                    : response.Error);
-            }
-
-            return response.Payload ?? JsonSerializer.SerializeToElement<object?>(null);
+            using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            var line = await reader.ReadLineAsync(timeout.Token);
+            if (string.IsNullOrWhiteSpace(line)) throw new InvalidDataException("The service returned an empty response.");
+            var result = JsonSerializer.Deserialize(line, IpcJsonContext.Default.PipeResponse)
+                ?? throw new InvalidDataException("The service returned an unreadable response.");
+            if (!result.Success) throw new InvalidOperationException(result.Error ?? "The service could not complete the request.");
+            return result.Payload ?? JsonSerializer.SerializeToElement<object?>(null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Cannot connect to the EasyBalance service. Close and reopen EasyBalance.exe, then approve the administrator prompt.");
+            throw new TimeoutException("The service did not respond in time. Check that EasyBalance is running.");
         }
-        catch (IOException ex)
+        catch (IOException exception)
         {
-            throw new InvalidOperationException("Cannot connect to the EasyBalance service. Check that the service is installed and running.", ex);
+            throw new InvalidOperationException("The EasyBalance service is unavailable.", exception);
         }
     }
 
-    public async Task<T?> GetAsync<T>(string method, CancellationToken cancellationToken = default)
+    public async Task<T> GetAsync<T>(string method, CancellationToken cancellationToken = default)
     {
-        var payload = await CallAsync(method, cancellationToken: cancellationToken);
-        return payload.ValueKind == JsonValueKind.Null ? default : payload.Deserialize<T>(JsonOptions);
+        var value = await CallAsync(method, cancellationToken: cancellationToken);
+        return value.Deserialize<T>(Options) ?? throw new InvalidDataException($"Missing {method} data.");
     }
 
-    private static int TimeoutSeconds(string method) => method is
-        "SaveRule" or "DeleteRule" or "SavePolicy" or "DeletePolicy" or "SetDefaultPolicy" or "SetTrafficRatio" or "SaveSettings" or
-        "SetInterfaceUsability" or "EnableRouting" or "DisableRouting" or "RestartCore" or "ValidateConfig" or "ExportDiagnostics" or "TestInterface"
-        ? 45
-        : 5;
+    public async Task<T> GetWithPayloadAsync<T>(string method, object payload, CancellationToken cancellationToken = default)
+    {
+        var value = await CallAsync(method, payload, cancellationToken);
+        return value.Deserialize<T>(Options) ?? throw new InvalidDataException($"Missing {method} data.");
+    }
 }

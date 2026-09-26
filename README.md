@@ -23,7 +23,7 @@ EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网
 
 - Windows 10/11，.NET 8 SDK（构建时）和管理员权限（安装服务及 TUN）。
 - 带 `with_clash_api` 构建标记的兼容 sing-box Windows 二进制。Service 会运行 `sing-box version` 检测实际能力；不在配置中钉死某个发行版本。
-- GitHub Release 包只需运行一个 `EasyBalance.exe`，其中嵌入了 Service 和官方 sing-box 核心，首次启动会自动完成安装。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在 Advanced 中设置管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
+- GitHub Release 包只需运行一个 `EasyBalance.exe`，其中嵌入了 Service 和官方 sing-box 核心，首次启动会自动完成安装。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在服务配置的 `SingBoxPath` 中指定管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
 
 GitHub Actions 在 `main` 更新时创建预览 Release，捆绑未修改的上游 sing-box Windows 二进制，并在同一 Release 提供对应源码包及许可文本。归属与再分发说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -53,7 +53,7 @@ dotnet test .\tests\EasyBalance.Tests\EasyBalance.Tests.csproj -c Release
 
 默认策略可启用双出口流量分配并用滑杆指定主出口目标字节比例。Service 读取两出口实际转发的上传和下载字节，在后续新连接上补偿偏离目标的份额；它不能精确控制正在传输的单条连接。某出口不可用时，新连接只使用可用出口；恢复后再逐步接近设定比例。
 
-验证 Ethernet → Wi-Fi：准备两张均可联网的网卡，策略主网卡选 Ethernet、备用选 Wi-Fi，启动 Routing；确认 Dashboard 中两个地址族都健康；断开 Ethernet 并观察 IPv4/IPv6 selector 和日志。IPv4-only：只让 Ethernet 的 IPv4 失效，确认 IPv4 切 Wi-Fi 而 IPv6 保持 Ethernet。IPv6-only：只让 Ethernet 的 IPv6 失效，确认 IPv6 切 Wi-Fi 而 IPv4 保持 Ethernet。恢复主网卡后，若开启 AutoFailback，连续成功、稳定期和最短保持时间均满足后回切。
+验证 Ethernet → Wi-Fi：准备两张均可联网的网卡，策略主网卡选 Ethernet、备用选 Wi-Fi，启动 Routing；确认 Overview 和 Interfaces 中两个地址族都健康；断开 Ethernet 并观察 IPv4/IPv6 selector 和日志。IPv4-only：只让 Ethernet 的 IPv4 失效，确认 IPv4 切 Wi-Fi 而 IPv6 保持 Ethernet。IPv6-only：只让 Ethernet 的 IPv6 失效，确认 IPv6 切 Wi-Fi 而 IPv4 保持 Ethernet。恢复主网卡后，若开启 AutoFailback，连续成功、稳定期和最短保持时间均满足后回切。
 
 Service 使用绑定指定网卡和地址族的 HTTPS socket probe，稳定时低频轮换 endpoint；首次失败追加探测，Down 后较快探测恢复。Windows 网络变化事件会合并后刷新网卡。不要仅凭网卡 Link Up 判断 Internet 可用。
 
@@ -61,7 +61,7 @@ Service 使用绑定指定网卡和地址族的 HTTPS socket probe，稳定时�
 
 ## 诊断与排障
 
-Dashboard 显示出口概况；Live traffic 每 2 秒更新各出口上传/下载速率、累计字节和活动连接，提供按进程、目标 IP 或出口筛选的连接表。默认策略启用双 WAN 负载后，主备比例滑杆会短暂防抖并即时保存新连接的目标比例，无需重启 sing-box。Diagnostics 也显示活动连接、进程、目标 IP、已识别的实际出口与按规则预计的出口。sing-box 未提供进程字段或无法唯一对应代理连接时，界面显示 Unknown，不推断。直连出口的累计字节依赖活动连接采样，短于采样间隔的连接可能漏计；双出口转发层直接计数实际经过的字节。Logs 显示最近事件。Advanced 可校验生成配置和导出本地诊断 ZIP。勾选 IP 遮盖时，导出包会遮盖网卡地址并省略可能包含 IP 的日志、设置和生成配置。控制 API 只监听 `127.0.0.1`，使用随机 secret；双出口代理也只监听 loopback 并使用随机凭据。UI 读取的生成配置会遮盖 secret 和代理密码；诊断包不包含未遮盖的生成配置。不会上传遥测。
+Overview 显示服务和策略概况；Live monitor 每 2 秒更新各出口上传/下载速率、累计字节和活动连接，并显示进程、目标 IP、已识别的实际出口与按规则预计的出口。默认策略启用双 WAN 负载后，主备比例滑杆会短暂防抖并即时保存新连接的目标比例，无需重启 sing-box。Diagnostics 显示服务计数器及维护操作。sing-box 未提供进程字段或无法唯一对应代理连接时，界面显示 Unknown，不推断。直连出口的累计字节依赖活动连接采样，短于采样间隔的连接可能漏计；双出口转发层直接计数实际经过的字节。Logs 显示最近事件。Diagnostics 可校验生成配置和导出本地诊断 ZIP。勾选 IP 遮盖时，导出包会遮盖网卡地址并省略可能包含 IP 的日志、设置和生成配置。控制 API 只监听 `127.0.0.1`，使用随机 secret；双出口代理也只监听 loopback 并使用随机凭据。服务返回的生成配置会遮盖 secret 和代理密码；诊断包不包含未遮盖的生成配置。不会上传遥测。
 
 如果服务显示 core faulted，先检查 sing-box 路径、Windows Service 管理员权限、`with_clash_api` 构建标记、TUN 驱动和最近日志。若互联网不通或疑似路由环路，检查每个 direct outbound 的 `bind_interface` 是否为当前物理网卡名称，并分别测试 IPv4/IPv6。VPN、Hyper-V、WSL、Docker 等环境可先关闭 strict_route，再逐步排查路由冲突。
 
