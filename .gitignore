@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+.vs/
+core/sing-box.exe
+sing-box/
+*.user

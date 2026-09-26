@@ -1,0 +1,223 @@
+name: Windows build and release
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Service and UI
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore solution
+        run: dotnet restore .\EasyBalance.sln
+
+      - name: Build solution
+        run: dotnet build .\EasyBalance.sln -c Release --no-restore
+
+  release:
+    name: Publish win-x64 release
+    if: >-
+      (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-preview.')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Service
+        run: >-
+          dotnet publish .\src\EasyBalance.Service\EasyBalance.Service.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:EnableWindowsTargeting=true
+          --output "$env:RUNNER_TEMP\easybalance-publish\Service"
+
+      - name: Publish UI
+        run: >-
+          dotnet publish .\src\EasyBalance.UI\EasyBalance.UI.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:EnableWindowsTargeting=true
+          --output "$env:RUNNER_TEMP\easybalance-publish\UI"
+
+      - name: Assemble package with official sing-box release
+        id: package
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apiHeaders = @{
+            Accept = 'application/vnd.github+json'
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'EasyBalance-release-workflow'
+          }
+          $upstreamRelease = Invoke-RestMethod -Uri 'https://api.github.com/repos/SagerNet/sing-box/releases/latest' -Headers $apiHeaders
+          if ($upstreamRelease.draft -or $upstreamRelease.prerelease) {
+            throw 'The GitHub latest-release endpoint returned a draft or prerelease.'
+          }
+
+          $upstreamTag = [string]$upstreamRelease.tag_name
+          $singBoxVersion = $upstreamTag -replace '^v', ''
+          if ($singBoxVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "The latest sing-box tag is not a stable semantic version: $upstreamTag"
+          }
+          $binaryAssetName = "sing-box-$singBoxVersion-windows-amd64.zip"
+          $binaryAssets = @($upstreamRelease.assets | Where-Object { $_.name -ceq $binaryAssetName })
+          if ($binaryAssets.Count -ne 1) {
+            throw "Expected exactly one upstream asset named $binaryAssetName; found $($binaryAssets.Count)."
+          }
+          $binaryAsset = $binaryAssets[0]
+          $binaryUri = [Uri]$binaryAsset.browser_download_url
+          if ($binaryUri.Scheme -ne 'https' -or $binaryUri.Host -ine 'github.com' -or
+              $binaryUri.AbsolutePath -notmatch '^/SagerNet/sing-box/releases/download/') {
+            throw "Unexpected upstream binary URL: $($binaryAsset.browser_download_url)"
+          }
+          $sourceUrl = [string]$upstreamRelease.tarball_url
+          $sourceUri = [Uri]$sourceUrl
+          if ($sourceUri.Scheme -ne 'https' -or $sourceUri.Host -ine 'api.github.com' -or
+              $sourceUri.AbsolutePath -notmatch '^/repos/SagerNet/sing-box/tarball/') {
+            throw "Unexpected upstream source archive URL: $sourceUrl"
+          }
+
+          $downloadRoot = Join-Path $env:RUNNER_TEMP 'sing-box-upstream'
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'easybalance-package'
+          $publishRoot = Join-Path $env:RUNNER_TEMP 'easybalance-publish'
+          $binaryArchive = Join-Path $downloadRoot $binaryAssetName
+          $sourceArchive = Join-Path $downloadRoot "sing-box-$singBoxVersion-source.tar.gz"
+          $binaryExtract = Join-Path $downloadRoot 'binary'
+          $sourceExtract = Join-Path $downloadRoot 'source'
+          $serviceCore = Join-Path $packageRoot 'Service\core'
+          $licenses = Join-Path $packageRoot 'licenses'
+          New-Item -ItemType Directory -Force -Path $downloadRoot, $binaryExtract, $sourceExtract,
+            (Join-Path $packageRoot 'Service'), (Join-Path $packageRoot 'UI'), $serviceCore, $licenses | Out-Null
+
+          Invoke-WebRequest -Uri $binaryUri -OutFile $binaryArchive
+          if ((Get-Item -LiteralPath $binaryArchive).Length -ne [long]$binaryAsset.size) {
+            throw 'Downloaded sing-box archive size does not match the GitHub release asset metadata.'
+          }
+          $binarySha256 = (Get-FileHash -LiteralPath $binaryArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $digestSource = 'locally calculated SHA-256 (the GitHub asset API did not include a digest)'
+          if (-not [string]::IsNullOrWhiteSpace([string]$binaryAsset.digest)) {
+            if ([string]$binaryAsset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
+              throw "Unsupported upstream asset digest format: $($binaryAsset.digest)"
+            }
+            $expectedSha256 = $Matches[1].ToLowerInvariant()
+            if ($binarySha256 -ne $expectedSha256) {
+              throw 'Downloaded sing-box archive failed the GitHub release asset SHA-256 check.'
+            }
+            $digestSource = 'verified against the GitHub release asset API digest'
+          }
+
+          Invoke-WebRequest -Uri $sourceUri -Headers $apiHeaders -OutFile $sourceArchive
+          $sourceSha256 = (Get-FileHash -LiteralPath $sourceArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Expand-Archive -LiteralPath $binaryArchive -DestinationPath $binaryExtract -Force
+          $executables = @(Get-ChildItem -LiteralPath $binaryExtract -Filter 'sing-box.exe' -File -Recurse)
+          if ($executables.Count -ne 1) {
+            throw "Expected one sing-box.exe in the official Windows archive; found $($executables.Count)."
+          }
+          & tar -xzf $sourceArchive -C $sourceExtract
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not extract the official sing-box source tarball.'
+          }
+          $sourceRoots = @(Get-ChildItem -LiteralPath $sourceExtract -Directory)
+          if ($sourceRoots.Count -ne 1) {
+            throw "Expected one root directory in the sing-box source tarball; found $($sourceRoots.Count)."
+          }
+          $upstreamLicense = Join-Path $sourceRoots[0].FullName 'LICENSE'
+          if (-not (Test-Path -LiteralPath $upstreamLicense -PathType Leaf)) {
+            throw 'The upstream sing-box source archive does not contain its root LICENSE file.'
+          }
+          Copy-Item -LiteralPath $upstreamLicense -Destination (Join-Path $licenses 'sing-box-LICENSE.txt')
+          $gplLicense = Join-Path $licenses 'GPL-3.0.txt'
+          Invoke-WebRequest -Uri 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile $gplLicense
+          $gplText = [System.IO.File]::ReadAllText($gplLicense)
+          if ($gplText -notmatch 'GNU GENERAL PUBLIC LICENSE' -or $gplText -notmatch 'Version 3, 29 June 2007') {
+            throw 'The downloaded GNU license text did not match the full GPL-3.0 license.'
+          }
+
+          Copy-Item -Path (Join-Path $publishRoot 'Service\*') -Destination (Join-Path $packageRoot 'Service') -Recurse -Force
+          Copy-Item -Path (Join-Path $publishRoot 'UI\*') -Destination (Join-Path $packageRoot 'UI') -Recurse -Force
+          Copy-Item -LiteralPath '.\README.md' -Destination (Join-Path $packageRoot 'README.md')
+          Copy-Item -LiteralPath '.\THIRD_PARTY_NOTICES.md' -Destination (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md')
+          Copy-Item -LiteralPath $executables[0].FullName -Destination (Join-Path $serviceCore 'sing-box.exe') -Force
+          $packageReleaseTag = if ($env:GITHUB_REF -eq 'refs/heads/main') {
+            "v0.1.0-preview.$env:GITHUB_RUN_NUMBER"
+          } else {
+            $env:GITHUB_REF_NAME
+          }
+          $sourceInfo = @"
+          EasyBalance release: $packageReleaseTag
+          Upstream project: https://github.com/SagerNet/sing-box
+          Upstream stable release tag: $upstreamTag
+          Upstream release page: $($upstreamRelease.html_url)
+          Windows x64 binary asset: $($binaryAsset.browser_download_url)
+          Binary archive SHA-256: $binarySha256 ($digestSource)
+          Corresponding source archive: $sourceUrl
+          Source archive SHA-256: $sourceSha256
+          The matching source archive is also attached to this GitHub Release.
+          "@
+          Set-Content -LiteralPath (Join-Path $packageRoot 'SING-BOX-SOURCE.txt') -Value $sourceInfo -Encoding utf8
+
+          $requiredPackageFiles = @(
+            (Join-Path $serviceCore 'sing-box.exe'),
+            (Join-Path $licenses 'sing-box-LICENSE.txt'),
+            $gplLicense,
+            (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md'),
+            (Join-Path $packageRoot 'SING-BOX-SOURCE.txt')
+          )
+          $missingPackageFiles = @($requiredPackageFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+          if ($missingPackageFiles.Count -gt 0) {
+            throw "Release package is missing required files: $($missingPackageFiles -join ', ')"
+          }
+
+          $assetTag = $packageReleaseTag -replace '[^0-9A-Za-z._-]', '-'
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE "EasyBalance-$assetTag-win-x64.zip"
+          Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+          "ZIP_PATH=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "SOURCE_ARCHIVE=$sourceArchive" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "RELEASE_TAG=$packageReleaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
+          RELEASE_ZIP: ${{ steps.package.outputs.zip_path }}
+          SOURCE_ARCHIVE: ${{ steps.package.outputs.source_archive }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -eq 'refs/heads/main') {
+            gh release create $env:RELEASE_TAG $env:RELEASE_ZIP $env:SOURCE_ARCHIVE `
+              --repo $env:GITHUB_REPOSITORY --title "EasyBalance $env:RELEASE_TAG" `
+              --generate-notes --prerelease --target $env:GITHUB_SHA
+          } else {
+            gh release create $env:RELEASE_TAG $env:RELEASE_ZIP $env:SOURCE_ARCHIVE `
+              --repo $env:GITHUB_REPOSITORY --title "EasyBalance $env:RELEASE_TAG" `
+              --generate-notes --verify-tag
+          }

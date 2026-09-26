@@ -1,0 +1,32 @@
+<UserControl x:Class="EasyBalance.UI.Views.DiagnosticsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1.1*" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Grid Grid.Row="0" Margin="0,0,0,13">
+            <StackPanel>
+                <TextBlock Text="Resource and routing metrics" FontSize="15" FontWeight="SemiBold" />
+                <TextBlock Text="Measurements are collected only when you refresh this page." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" />
+            </StackPanel>
+            <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Refresh diagnostics" Command="{Binding RefreshCommand}" HorizontalAlignment="Right" />
+        </Grid>
+        <Border Grid.Row="1" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="8">
+            <DataGrid ItemsSource="{Binding Metrics}" RowHeight="38">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Metric" Binding="{Binding Name}" Width="250" />
+                    <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+        <Border Grid.Row="2" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="15" Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock Text="Raw service diagnostics" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <TextBox Text="{Binding DiagnosticsJson}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" />
+            </StackPanel>
+        </Border>
+        <StackPanel Grid.Row="3" Margin="0,9,0,0">
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Message}" Foreground="{DynamicResource SuccessBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</UserControl>
