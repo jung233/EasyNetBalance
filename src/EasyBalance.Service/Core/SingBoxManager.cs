@@ -72,7 +72,7 @@ public sealed class SingBoxManager : IAsyncDisposable
         {
             lock (_snapshotLock)
             {
-                var uptime = _startedAt is { } start && _coreRunning
+                TimeSpan? uptime = _startedAt is { } start && _coreRunning
                     ? DateTimeOffset.UtcNow - start
                     : null;
                 return new SingBoxCoreSnapshot(
@@ -1050,7 +1050,7 @@ public sealed class SingBoxManager : IAsyncDisposable
         var volumeRoot = Path.GetPathRoot(path) ?? throw new SecurityException("sing-box path has no local volume root.");
         while (true)
         {
-            var access = Directory.Exists(current)
+            FileSystemSecurity access = Directory.Exists(current)
                 ? new DirectoryInfo(current).GetAccessControl(AccessControlSections.Access)
                 : new FileInfo(current).GetAccessControl(AccessControlSections.Access);
             if (access.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !trustedOwners.Contains(owner))
