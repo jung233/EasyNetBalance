@@ -1050,9 +1050,10 @@ public sealed class SingBoxManager : IAsyncDisposable
         var volumeRoot = Path.GetPathRoot(path) ?? throw new SecurityException("sing-box path has no local volume root.");
         while (true)
         {
+            const AccessControlSections sections = AccessControlSections.Access | AccessControlSections.Owner;
             FileSystemSecurity access = Directory.Exists(current)
-                ? new DirectoryInfo(current).GetAccessControl(AccessControlSections.Access)
-                : new FileInfo(current).GetAccessControl(AccessControlSections.Access);
+                ? new DirectoryInfo(current).GetAccessControl(sections)
+                : new FileInfo(current).GetAccessControl(sections);
             if (access.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !trustedOwners.Contains(owner))
             {
                 throw new SecurityException("sing-box and its parent folders must be owned by the service account, SYSTEM, or Administrators.");

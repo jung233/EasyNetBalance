@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Sockets;
+using System.Security;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
@@ -164,7 +165,7 @@ public sealed class EasyBalanceRuntime(
                 _ => Fail($"Unknown method: {request.Method}")
             };
         }
-        catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidOperationException or IOException)
+        catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidOperationException or IOException or SecurityException)
         {
             return Fail(exception.Message);
         }

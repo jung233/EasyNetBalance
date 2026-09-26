@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace EasyBalance.UI;
@@ -49,10 +50,11 @@ public partial class App : Application
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "EasyBalance");
 
     private static string ServicePath => Path.Combine(InstallDirectory, "EasyBalance.Service.exe");
+    private static string CorePath => Path.Combine(InstallDirectory, "core", "sing-box.exe");
 
     private static async Task EnsureServiceAsync()
     {
-        if (!await IsPipeAvailableAsync())
+        if (!await IsPipeAvailableAsync() || !IsInstalledPayloadCurrent())
         {
             using var elevated = Process.Start(new ProcessStartInfo
             {
@@ -85,15 +87,43 @@ public partial class App : Application
     private static void InstallPayload()
     {
         Directory.CreateDirectory(InstallDirectory);
+        var installed = RunSc("query EasyBalance", 1060) != 1060;
+        if (installed)
+        {
+            RunSc("stop EasyBalance", 1062);
+            for (var attempt = 0; attempt < 60; attempt++)
+            {
+                var processes = Process.GetProcessesByName("EasyBalance.Service");
+                try
+                {
+                    if (processes.All(process => process.HasExited)) break;
+                }
+                finally { foreach (var process in processes) process.Dispose(); }
+                if (attempt == 59) throw new TimeoutException("The previous EasyBalance service did not stop in time.");
+                Thread.Sleep(500);
+            }
+        }
         WriteResource("EasyBalance.Payload.Service.exe", ServicePath);
-        var corePath = Path.Combine(InstallDirectory, "core", "sing-box.exe");
-        WriteResource("EasyBalance.Payload.core.sing-box.exe", corePath);
+        WriteResource("EasyBalance.Payload.core.sing-box.exe", CorePath);
         var serviceArguments = "binPath= \"" + ServicePath + "\" start= auto DisplayName= \"EasyBalance routing service\"";
-        if (RunSc("query EasyBalance") == 1060)
+        if (!installed)
             RunSc("create EasyBalance " + serviceArguments);
         else
             RunSc("config EasyBalance " + serviceArguments);
-        RunSc("start EasyBalance");
+        RunSc("start EasyBalance", 1056);
+    }
+
+    private static bool IsInstalledPayloadCurrent() =>
+        MatchesResource("EasyBalance.Payload.Service.exe", ServicePath) &&
+        MatchesResource("EasyBalance.Payload.core.sing-box.exe", CorePath);
+
+    private static bool MatchesResource(string resourceName, string path)
+    {
+        if (!File.Exists(path)) return false;
+        using var packaged = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+        if (packaged is null) return false;
+        using var installed = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return SHA256.HashData(packaged).SequenceEqual(SHA256.HashData(installed));
     }
 
     private static void WriteResource(string resourceName, string destination)
@@ -105,16 +135,15 @@ public partial class App : Application
         source.CopyTo(target);
     }
 
-    private static int RunSc(string arguments)
+    private static int RunSc(string arguments, params int[] allowedExitCodes)
     {
         using var process = Process.Start(new ProcessStartInfo("sc.exe", arguments)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true
         }) ?? throw new InvalidOperationException("Windows could not start the Service Control Manager.");
         process.WaitForExit();
-        if (process.ExitCode != 0 && !arguments.StartsWith("start ", StringComparison.OrdinalIgnoreCase)
-            && !arguments.StartsWith("query ", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Service registration failed: {process.StandardError.ReadToEnd()}");
+        if (process.ExitCode != 0 && !allowedExitCodes.Contains(process.ExitCode))
+            throw new InvalidOperationException($"Service command failed ({arguments}, exit {process.ExitCode}): {process.StandardOutput.ReadToEnd()} {process.StandardError.ReadToEnd()}");
         return process.ExitCode;
     }
 
