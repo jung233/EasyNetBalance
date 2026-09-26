@@ -19,19 +19,21 @@ public sealed class ThemeManager
         var values = _isDark
             ? new Dictionary<string, string>
             {
-                ["WindowBackgroundBrush"] = "#111824", ["SurfaceBrush"] = "#182232", ["CardBrush"] = "#1D293A",
-                ["SidebarBrush"] = "#101824", ["SidebarTextBrush"] = "#DCE5F3", ["TextPrimaryBrush"] = "#EDF2F8",
-                ["TextSecondaryBrush"] = "#A0AEC1", ["BorderBrush"] = "#2D3A4D", ["AccentBrush"] = "#6D94FF",
-                ["AccentSoftBrush"] = "#253655", ["SuccessBrush"] = "#49C38F", ["WarningBrush"] = "#F2B35A",
-                ["DangerBrush"] = "#F07883", ["InputBrush"] = "#1D293A", ["DataGridHeaderBrush"] = "#202E41"
+                ["WindowBackgroundBrush"] = "#0C1422", ["SurfaceBrush"] = "#152033", ["CardBrush"] = "#19263A",
+                ["SidebarBrush"] = "#09111E", ["SidebarTextBrush"] = "#D0D9E7", ["SidebarMutedTextBrush"] = "#8D9BB0",
+                ["SidebarActiveBrush"] = "#22395E", ["SidebarHoverBrush"] = "#17263D", ["TextPrimaryBrush"] = "#F2F5FA",
+                ["TextSecondaryBrush"] = "#B0BDD0", ["BorderBrush"] = "#2B3B52", ["AccentBrush"] = "#83A4FF",
+                ["AccentSoftBrush"] = "#253A5D", ["SuccessBrush"] = "#4ED0A0", ["WarningBrush"] = "#F1BA68",
+                ["DangerBrush"] = "#FF8994", ["InputBrush"] = "#111C2C", ["DataGridHeaderBrush"] = "#1D2B40"
             }
             : new Dictionary<string, string>
             {
                 ["WindowBackgroundBrush"] = "#F4F6FA", ["SurfaceBrush"] = "#FFFFFF", ["CardBrush"] = "#FFFFFF",
-                ["SidebarBrush"] = "#18253A", ["SidebarTextBrush"] = "#DCE5F3", ["TextPrimaryBrush"] = "#182235",
-                ["TextSecondaryBrush"] = "#68768B", ["BorderBrush"] = "#E0E6EF", ["AccentBrush"] = "#356AE6",
-                ["AccentSoftBrush"] = "#E8EEFF", ["SuccessBrush"] = "#17845B", ["WarningBrush"] = "#B66A0A",
-                ["DangerBrush"] = "#C33D4B", ["InputBrush"] = "#FFFFFF", ["DataGridHeaderBrush"] = "#F3F5F9"
+                ["SidebarBrush"] = "#101828", ["SidebarTextBrush"] = "#D0D5DD", ["SidebarMutedTextBrush"] = "#98A2B3",
+                ["SidebarActiveBrush"] = "#263A5C", ["SidebarHoverBrush"] = "#1D2B42", ["TextPrimaryBrush"] = "#172033",
+                ["TextSecondaryBrush"] = "#526075", ["BorderBrush"] = "#E1E7F0", ["AccentBrush"] = "#315FEA",
+                ["AccentSoftBrush"] = "#E9EFFF", ["SuccessBrush"] = "#087A55", ["WarningBrush"] = "#91520A",
+                ["DangerBrush"] = "#B42332", ["InputBrush"] = "#FFFFFF", ["DataGridHeaderBrush"] = "#F6F8FC"
             };
 
         foreach (var (key, color) in values)

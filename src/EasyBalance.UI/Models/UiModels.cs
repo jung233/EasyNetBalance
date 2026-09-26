@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using EasyBalance.UI.Core;
 using System.Text.Json;
@@ -69,6 +70,171 @@ public sealed class AdapterRow : ObservableObject
     private static string FormatTime(DateTimeOffset? value) => value is null ? "—" : value.Value.ToLocalTime().ToString("g");
 }
 
+public sealed class OutboundTrafficRow
+{
+    public string InterfaceId { get; init; } = "Unknown";
+    public string Name { get; init; } = "Unknown";
+    public bool? IsAvailable { get; init; }
+    public string AvailabilityText => IsAvailable switch { true => "Available", false => "Unavailable", null => "Unknown" };
+    public string ErrorText { get; init; } = "Unknown";
+    public bool HasError => !string.Equals(ErrorText, "Unknown", StringComparison.OrdinalIgnoreCase);
+    public string UploadText { get; init; } = "Unknown";
+    public string DownloadText { get; init; } = "Unknown";
+    public string ActiveConnectionsText { get; init; } = "Unknown";
+    public string TargetPercentText { get; init; } = "Unknown";
+
+    public static OutboundTrafficRow FromJson(JsonElement item) => new()
+    {
+        InterfaceId = TelemetryFormat.Text(item, "InterfaceId"),
+        Name = TelemetryFormat.Text(item, "Name"),
+        IsAvailable = TelemetryFormat.Boolean(item, "Available"),
+        ErrorText = TelemetryFormat.Text(item, "Error"),
+        UploadText = TelemetryFormat.Bytes(item, "UploadBytes"),
+        DownloadText = TelemetryFormat.Bytes(item, "DownloadBytes"),
+        ActiveConnectionsText = TelemetryFormat.Count(item, "ActiveConnections"),
+        TargetPercentText = TelemetryFormat.Percent(item, "TargetPercent")
+    };
+}
+
+public sealed class ActiveConnectionRow
+{
+    public string Id { get; init; } = "Unknown";
+    public string Process { get; init; } = "Unknown";
+    public string ProcessPath { get; init; } = "Unknown";
+    public string DestinationIp { get; init; } = "Unknown";
+    public string DestinationPort { get; init; } = "Unknown";
+    public string Host { get; init; } = "Unknown";
+    public string Network { get; init; } = "Unknown";
+    public string ActualOutbound { get; init; } = "Unknown";
+    public string PredictedOutbound { get; init; } = "Unknown";
+    public string UploadText { get; init; } = "Unknown";
+    public string DownloadText { get; init; } = "Unknown";
+    public string StartedAtText { get; init; } = "Unknown";
+
+    public static ActiveConnectionRow FromJson(JsonElement item) => new()
+    {
+        Id = TelemetryFormat.Text(item, "Id"),
+        Process = TelemetryFormat.Text(item, "Process"),
+        ProcessPath = TelemetryFormat.Text(item, "ProcessPath"),
+        DestinationIp = TelemetryFormat.Text(item, "DestinationIp"),
+        DestinationPort = TelemetryFormat.Text(item, "DestinationPort"),
+        Host = TelemetryFormat.Text(item, "Host"),
+        Network = TelemetryFormat.Text(item, "Network"),
+        ActualOutbound = TelemetryFormat.Text(item, "ActualOutbound"),
+        PredictedOutbound = TelemetryFormat.Text(item, "PredictedOutbound"),
+        UploadText = TelemetryFormat.Bytes(item, "UploadBytes"),
+        DownloadText = TelemetryFormat.Bytes(item, "DownloadBytes"),
+        StartedAtText = TelemetryFormat.DateTime(item, "StartedAt")
+    };
+}
+
+internal static class TelemetryFormat
+{
+    public static bool? Boolean(JsonElement source, params string[] names)
+    {
+        var value = JsonValue.Property(source, names);
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    public static string Text(JsonElement source, params string[] names)
+    {
+        var value = JsonValue.Property(source, names);
+        if (value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null or JsonValueKind.Object or JsonValueKind.Array)
+        {
+            return "Unknown";
+        }
+
+        var text = value.ToString();
+        return string.IsNullOrWhiteSpace(text) ? "Unknown" : text;
+    }
+
+    public static string Bytes(JsonElement source, params string[] names)
+    {
+        var bytes = NonNegativeInt64(source, names);
+        return bytes is { } value ? FormatBytes(value) : "Unknown";
+    }
+
+    public static string Count(JsonElement source, params string[] names)
+    {
+        var count = NonNegativeInt64(source, names);
+        return count?.ToString(CultureInfo.InvariantCulture) ?? "Unknown";
+    }
+
+    public static string Percent(JsonElement source, params string[] names)
+    {
+        var value = JsonValue.Property(source, names);
+        double number;
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            if (!value.TryGetDouble(out number))
+            {
+                return "Unknown";
+            }
+        }
+        else if (value.ValueKind != JsonValueKind.String
+            || !double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+        {
+            return "Unknown";
+        }
+
+        return number is >= 0 and <= 100
+            ? $"{number.ToString("0.#", CultureInfo.InvariantCulture)}%"
+            : "Unknown";
+    }
+
+    public static string DateTime(JsonElement source, params string[] names)
+    {
+        var value = JsonValue.Property(source, names);
+        if (value.ValueKind == JsonValueKind.String
+            && System.DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestamp))
+        {
+            return timestamp.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+        }
+
+        return "Unknown";
+    }
+
+    private static long? NonNegativeInt64(JsonElement source, params string[] names)
+    {
+        var value = JsonValue.Property(source, names);
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) && number >= 0)
+        {
+            return number;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedNumber)
+            && parsedNumber >= 0)
+        {
+            return parsedNumber;
+        }
+
+        return null;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        var value = (double)bytes;
+        var unit = 0;
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        while (value >= 1000 && unit < units.Length - 1)
+        {
+            value /= 1000;
+            unit++;
+        }
+
+        return unit == 0
+            ? $"{bytes.ToString(CultureInfo.InvariantCulture)} B"
+            : $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
+    }
+}
+
 public sealed class PolicyOption
 {
     public Guid Id { get; init; }
@@ -98,6 +264,21 @@ public sealed class PolicyRow : ObservableObject
     public bool AutoFailback { get => _autoFailback; set => SetProperty(ref _autoFailback, value); }
     private bool _enabled = true;
     public bool Enabled { get => _enabled; set => SetProperty(ref _enabled, value); }
+    private bool _loadBalanceEnabled;
+    public bool LoadBalanceEnabled { get => _loadBalanceEnabled; set => SetProperty(ref _loadBalanceEnabled, value); }
+    private int _primaryTrafficPercent = 50;
+    public int PrimaryTrafficPercent
+    {
+        get => _primaryTrafficPercent;
+        set
+        {
+            if (SetProperty(ref _primaryTrafficPercent, Math.Clamp(value, 0, 100)))
+            {
+                OnPropertyChanged(nameof(RemainingTrafficPercent));
+            }
+        }
+    }
+    public int RemainingTrafficPercent => 100 - PrimaryTrafficPercent;
     private int _failureThreshold = 3;
     public int FailureThreshold { get => _failureThreshold; set => SetProperty(ref _failureThreshold, value); }
     private int _recoveryThreshold = 3;
@@ -123,6 +304,8 @@ public sealed class PolicyRow : ObservableObject
         FailoverEnabled = JsonValue.Bool(item, false, "FailoverEnabled"),
         AutoFailback = JsonValue.Bool(item, false, "AutoFailback"),
         Enabled = JsonValue.Bool(item, true, "Enabled"),
+        LoadBalanceEnabled = JsonValue.Bool(item, false, "LoadBalanceEnabled"),
+        PrimaryTrafficPercent = Math.Clamp(JsonValue.Int32(item, 50, "PrimaryTrafficPercent"), 0, 100),
         FailureThreshold = JsonValue.Int32(item, 3, "FailureThreshold"),
         RecoveryThreshold = JsonValue.Int32(item, 3, "RecoveryThreshold"),
         RecoveryStabilization = JsonValue.Seconds(item, 10, "RecoveryStabilization"),
@@ -134,7 +317,7 @@ public sealed class PolicyRow : ObservableObject
             .Select(element => Guid.TryParse(element.ToString(), out var candidate) ? candidate : Guid.Empty).Where(id => id != Guid.Empty).ToArray()
     };
 
-    public object ToWire() => new
+    public object ToWire(bool isDefaultPolicy) => new
     {
         Id = Id.ToString("D"),
         Name,
@@ -143,6 +326,8 @@ public sealed class PolicyRow : ObservableObject
         FailoverEnabled,
         AutoFailback,
         Enabled,
+        LoadBalanceEnabled = isDefaultPolicy && LoadBalanceEnabled,
+        PrimaryTrafficPercent = Math.Clamp(PrimaryTrafficPercent, 0, 100),
         FailureThreshold,
         RecoveryThreshold,
         RecoveryStabilization = TimeSpan.FromSeconds(RecoveryStabilization),

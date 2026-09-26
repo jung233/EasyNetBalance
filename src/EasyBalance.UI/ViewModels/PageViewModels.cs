@@ -71,6 +71,7 @@ public sealed class MainWindowViewModel : ObservableObject
         Advanced = new AdvancedViewModel(Service);
         Diagnostics = new DiagnosticsViewModel(Service);
         CurrentPage = Dashboard;
+        Dashboard.SetTelemetryActive(true);
         NavigateCommand = new RelayCommand(parameter => Navigate(parameter?.ToString()));
         RefreshCommand = new AsyncRelayCommand(_ => RefreshCurrentAsync());
         ToggleThemeCommand = new RelayCommand(_ => ToggleTheme());
@@ -149,6 +150,8 @@ public sealed class MainWindowViewModel : ObservableObject
             "Diagnostics" => Diagnostics,
             _ => Dashboard
         };
+        Dashboard.SetTelemetryActive(ReferenceEquals(CurrentPage, Dashboard));
+        Diagnostics.SetTelemetryActive(ReferenceEquals(CurrentPage, Diagnostics));
         _ = RefreshCurrentAsync();
     }
 
@@ -161,6 +164,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
 public sealed class DashboardViewModel : PageViewModel
 {
+    private readonly SemaphoreSlim _telemetryRequestGate = new(1, 1);
+    private CancellationTokenSource? _telemetryLoopCancellation;
+
     public DashboardViewModel(PipeClient service) : base(service, "Dashboard", "Routing status and live network health.")
     {
         RefreshCommand = new AsyncRelayCommand(_ => RefreshAsync());
@@ -170,6 +176,7 @@ public sealed class DashboardViewModel : PageViewModel
     public ObservableCollection<AdapterRow> Adapters { get; } = [];
     public ObservableCollection<PolicyRow> Policies { get; } = [];
     public ObservableCollection<LogRow> RecentEvents { get; } = [];
+    public ObservableCollection<OutboundTrafficRow> OutboundTraffic { get; } = [];
     private int _ruleCount;
     public int RuleCount { get => _ruleCount; private set => SetProperty(ref _ruleCount, value); }
     public DashboardStatus Status { get; private set; } = new();
@@ -177,8 +184,104 @@ public sealed class DashboardViewModel : PageViewModel
     public AsyncRelayCommand ToggleRoutingCommand { get; }
     public string RoutingButtonText => Status.RoutingEnabled ? "Disable routing" : "Enable routing";
     public string RoutingStatusText => Status.RoutingEnabled ? "Enabled" : "Disabled";
+    private string _telemetrySampledAt = "Unknown";
+    public string TelemetrySampledAt { get => _telemetrySampledAt; private set => SetProperty(ref _telemetrySampledAt, value); }
+    private string _uploadTotalText = "Unknown";
+    public string UploadTotalText { get => _uploadTotalText; private set => SetProperty(ref _uploadTotalText, value); }
+    private string _downloadTotalText = "Unknown";
+    public string DownloadTotalText { get => _downloadTotalText; private set => SetProperty(ref _downloadTotalText, value); }
+    private string _outboundTelemetryStatus = "Waiting for telemetry…";
+    public string OutboundTelemetryStatus { get => _outboundTelemetryStatus; private set => SetProperty(ref _outboundTelemetryStatus, value); }
+    private bool _hasOutboundTelemetry;
+    public bool HasOutboundTelemetry { get => _hasOutboundTelemetry; private set => SetProperty(ref _hasOutboundTelemetry, value); }
 
     public override Task RefreshAsync() => RunAsync(RefreshDataAsync);
+
+    public void SetTelemetryActive(bool active)
+    {
+        if (active)
+        {
+            if (_telemetryLoopCancellation is { IsCancellationRequested: false })
+            {
+                return;
+            }
+
+            var cancellation = new CancellationTokenSource();
+            _telemetryLoopCancellation = cancellation;
+            _ = RunTelemetryLoopAsync(cancellation);
+            return;
+        }
+
+        var current = _telemetryLoopCancellation;
+        _telemetryLoopCancellation = null;
+        current?.Cancel();
+    }
+
+    private async Task RunTelemetryLoopAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            await RefreshConnectionTelemetryAsync();
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                await RefreshConnectionTelemetryAsync();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task RefreshConnectionTelemetryAsync()
+    {
+        if (!await _telemetryRequestGate.WaitAsync(0))
+        {
+            return;
+        }
+
+        try
+        {
+            var telemetry = await Service.CallAsync("GetConnectionTelemetry");
+            UploadTotalText = TelemetryFormat.Bytes(telemetry, "UploadTotal");
+            DownloadTotalText = TelemetryFormat.Bytes(telemetry, "DownloadTotal");
+            TelemetrySampledAt = TelemetryFormat.DateTime(telemetry, "SampledAt");
+
+            var outboundItems = JsonValue.Property(telemetry, "Outbounds");
+            OutboundTraffic.Clear();
+            if (outboundItems.ValueKind != JsonValueKind.Array)
+            {
+                HasOutboundTelemetry = false;
+                OutboundTelemetryStatus = "Outbound telemetry is Unknown.";
+                return;
+            }
+
+            foreach (var outbound in JsonValue.Items(outboundItems).Select(OutboundTrafficRow.FromJson))
+            {
+                OutboundTraffic.Add(outbound);
+            }
+
+            HasOutboundTelemetry = OutboundTraffic.Count > 0;
+            OutboundTelemetryStatus = HasOutboundTelemetry ? string.Empty : "No outbound interfaces reported.";
+        }
+        catch
+        {
+            OutboundTraffic.Clear();
+            HasOutboundTelemetry = false;
+            UploadTotalText = "Unknown";
+            DownloadTotalText = "Unknown";
+            TelemetrySampledAt = "Unknown";
+            OutboundTelemetryStatus = "Connection telemetry unavailable.";
+        }
+        finally
+        {
+            _telemetryRequestGate.Release();
+        }
+    }
 
     private async Task RefreshDataAsync()
     {
@@ -208,6 +311,7 @@ public sealed class DashboardViewModel : PageViewModel
         }
         var logs = await Service.CallAsync("GetLogs");
         Replace(RecentEvents, JsonValue.Items(logs).Select(LogRow.FromJson).Take(8));
+        await RefreshConnectionTelemetryAsync();
     }
 
     private async Task ToggleRoutingAsync() => await RunAsync(async () =>
@@ -661,13 +765,26 @@ public sealed class FailoverViewModel : PageViewModel
                 SaveCommand.RaiseCanExecuteChanged();
                 DeletePolicyCommand.RaiseCanExecuteChanged();
                 SetDefaultPolicyCommand.RaiseCanExecuteChanged();
+                OnPropertyChanged(nameof(IsSelectedDefaultPolicy));
             }
         }
     }
     private EndpointRow? _selectedEndpoint;
     public EndpointRow? SelectedEndpoint { get => _selectedEndpoint; set { if (SetProperty(ref _selectedEndpoint, value)) RemoveEndpointCommand.RaiseCanExecuteChanged(); } }
     public string TestSummary { get; private set; } = "";
-    public Guid DefaultPolicyId { get; private set; }
+    private Guid _defaultPolicyId;
+    public Guid DefaultPolicyId
+    {
+        get => _defaultPolicyId;
+        private set
+        {
+            if (SetProperty(ref _defaultPolicyId, value))
+            {
+                OnPropertyChanged(nameof(IsSelectedDefaultPolicy));
+            }
+        }
+    }
+    public bool IsSelectedDefaultPolicy => SelectedPolicy is not null && SelectedPolicy.Id == DefaultPolicyId;
     private int _healthyProbeInterval = 20;
     public int HealthyProbeInterval { get => _healthyProbeInterval; set => SetProperty(ref _healthyProbeInterval, value); }
     private int _suspectProbeInterval = 2;
@@ -731,7 +848,7 @@ public sealed class FailoverViewModel : PageViewModel
             return;
         }
 
-        await Service.CallAsync("SavePolicy", SelectedPolicy.ToWire());
+        await Service.CallAsync("SavePolicy", SelectedPolicy.ToWire(IsSelectedDefaultPolicy));
         Message = "Failover policy saved.";
         await RefreshDataAsync();
     });
@@ -1100,17 +1217,78 @@ public sealed class AdvancedViewModel : PageViewModel
 
 public sealed class DiagnosticsViewModel : PageViewModel
 {
+    private readonly SemaphoreSlim _telemetryRequestGate = new(1, 1);
+    private CancellationTokenSource? _telemetryLoopCancellation;
     private TimeSpan? _lastCpuTime;
     private DateTimeOffset? _lastSample;
-    public DiagnosticsViewModel(PipeClient service) : base(service, "Diagnostics", "Local service, sing-box, and UI resource information. No telemetry is sent.")
+    public DiagnosticsViewModel(PipeClient service) : base(service, "Diagnostics", "Local service, sing-box, and UI resource information. Connection telemetry stays on this device.")
     {
         RefreshCommand = new AsyncRelayCommand(_ => RefreshAsync());
     }
 
     public ObservableCollection<DiagnosticLine> Metrics { get; } = [];
+    public ObservableCollection<ActiveConnectionRow> ActiveConnections { get; } = [];
+    public ObservableCollection<OutboundTrafficRow> OutboundTraffic { get; } = [];
     public AsyncRelayCommand RefreshCommand { get; }
     private string _diagnosticsJson = "{}";
     public string DiagnosticsJson { get => _diagnosticsJson; private set => SetProperty(ref _diagnosticsJson, value); }
+    private string _connectionTelemetryStatus = "Refresh diagnostics to inspect active connections.";
+    public string ConnectionTelemetryStatus { get => _connectionTelemetryStatus; private set => SetProperty(ref _connectionTelemetryStatus, value); }
+    private string _telemetryLastError = "Unknown";
+    public string TelemetryLastError
+    {
+        get => _telemetryLastError;
+        private set
+        {
+            if (SetProperty(ref _telemetryLastError, value))
+            {
+                OnPropertyChanged(nameof(HasTelemetryLastError));
+            }
+        }
+    }
+    public bool HasTelemetryLastError => !string.Equals(TelemetryLastError, "Unknown", StringComparison.OrdinalIgnoreCase);
+    private string _outboundTelemetryStatus = "Waiting for telemetry…";
+    public string OutboundTelemetryStatus { get => _outboundTelemetryStatus; private set => SetProperty(ref _outboundTelemetryStatus, value); }
+
+    public void SetTelemetryActive(bool active)
+    {
+        if (active)
+        {
+            if (_telemetryLoopCancellation is { IsCancellationRequested: false })
+            {
+                return;
+            }
+
+            var cancellation = new CancellationTokenSource();
+            _telemetryLoopCancellation = cancellation;
+            _ = RunTelemetryLoopAsync(cancellation);
+            return;
+        }
+
+        var current = _telemetryLoopCancellation;
+        _telemetryLoopCancellation = null;
+        current?.Cancel();
+    }
+
+    private async Task RunTelemetryLoopAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            await RefreshConnectionTelemetryAsync();
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                await RefreshConnectionTelemetryAsync();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
 
     public override Task RefreshAsync() => RunAsync(async () =>
     {
@@ -1142,7 +1320,68 @@ public sealed class DiagnosticsViewModel : PageViewModel
         AddMetric(payload, "Core running", "CoreRunning");
         AddMetric(payload, "Routing enabled", "RoutingEnabled");
         AddUiMetrics();
+        await RefreshConnectionTelemetryAsync();
     });
+
+    private async Task RefreshConnectionTelemetryAsync()
+    {
+        if (!await _telemetryRequestGate.WaitAsync(0))
+        {
+            return;
+        }
+
+        try
+        {
+            var telemetry = await Service.CallAsync("GetConnectionTelemetry");
+            TelemetryLastError = TelemetryFormat.Text(telemetry, "LastError");
+
+            var outboundItems = JsonValue.Property(telemetry, "Outbounds");
+            OutboundTraffic.Clear();
+            if (outboundItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var outbound in JsonValue.Items(outboundItems).Select(OutboundTrafficRow.FromJson))
+                {
+                    OutboundTraffic.Add(outbound);
+                }
+
+                OutboundTelemetryStatus = OutboundTraffic.Count == 0 ? "No outbound interfaces reported." : string.Empty;
+            }
+            else
+            {
+                OutboundTelemetryStatus = "Outbound telemetry is Unknown.";
+            }
+
+            var connectionItems = JsonValue.Property(telemetry, "Connections");
+            ActiveConnections.Clear();
+            if (connectionItems.ValueKind != JsonValueKind.Array)
+            {
+                ConnectionTelemetryStatus = "Connection telemetry is Unknown.";
+                return;
+            }
+
+            foreach (var connection in JsonValue.Items(connectionItems).Select(ActiveConnectionRow.FromJson))
+            {
+                ActiveConnections.Add(connection);
+            }
+
+            var sampledAt = TelemetryFormat.DateTime(telemetry, "SampledAt");
+            ConnectionTelemetryStatus = ActiveConnections.Count == 0
+                ? $"No active connections reported · Sampled {sampledAt}"
+                : $"{ActiveConnections.Count} active connection(s) · Sampled {sampledAt}";
+        }
+        catch (Exception ex)
+        {
+            ActiveConnections.Clear();
+            OutboundTraffic.Clear();
+            TelemetryLastError = ex.Message;
+            OutboundTelemetryStatus = $"Outbound telemetry unavailable: {ex.Message}";
+            ConnectionTelemetryStatus = $"Connection telemetry unavailable: {ex.Message}";
+        }
+        finally
+        {
+            _telemetryRequestGate.Release();
+        }
+    }
 
     private void AddMetric(JsonElement source, string label, params string[] names)
     {

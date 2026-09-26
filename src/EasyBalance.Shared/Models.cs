@@ -29,6 +29,10 @@ public sealed class RoutingPolicy
     public string? FallbackInterfaceId { get; set; }
     public bool FailoverEnabled { get; set; } = true;
     public bool AutoFailback { get; set; } = true;
+    /// <summary>Distribute new default-policy connections across the two selected WANs.</summary>
+    public bool LoadBalanceEnabled { get; set; }
+    /// <summary>Target share of measured upload plus download bytes for the primary WAN.</summary>
+    public int PrimaryTrafficPercent { get; set; } = 50;
     public bool Enabled { get; set; } = true;
     public int FailureThreshold { get; set; } = 3;
     public int RecoveryThreshold { get; set; } = 3;

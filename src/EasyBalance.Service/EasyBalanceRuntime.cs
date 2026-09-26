@@ -27,6 +27,9 @@ public sealed class EasyBalanceRuntime(
     private readonly Dictionary<(string Policy, AddressFamilyKind Family), PolicyFamilyRuntime> _policyRuntime = new();
     private readonly Dictionary<string, string> _generatedOutboundNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<RuntimeLogEntry> _logs = new();
+    private readonly object _trafficGate = new();
+    private readonly Dictionary<string, (long Upload, long Download, string InterfaceId)> _seenTraffic = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (long Upload, long Download)> _observedTraffic = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "EasyBalance");
     private AppSettings _settings = AppSettings.CreateDefault();
     private long _failovers;
@@ -82,6 +85,7 @@ public sealed class EasyBalanceRuntime(
         try
         {
             var currentAdapters = health.Adapters;
+            core.UpdateWeightedEgresses(_settings, currentAdapters);
             if (RequiresGeneratedConfigRefresh(_settings, currentAdapters))
             {
                 await core.ApplyConfigurationAsync(_settings, currentAdapters, cancellationToken);
@@ -96,6 +100,7 @@ public sealed class EasyBalanceRuntime(
             foreach (var policy in AllPolicies())
             {
                 if (!policy.Enabled || string.IsNullOrWhiteSpace(policy.PrimaryInterfaceId)) continue;
+                if (policy.Id == _settings.DefaultPolicy.Id && policy.LoadBalanceEnabled) continue;
                 foreach (var family in Enum.GetValues<AddressFamilyKind>())
                 {
                     if (family == AddressFamilyKind.IPv6 && !_settings.Ipv6Enabled) continue;
@@ -147,6 +152,7 @@ public sealed class EasyBalanceRuntime(
                 "GetSettings" => Ok(_settings, EasyBalanceJsonContext.Default.AppSettings),
                 "GetLogs" => Ok(GetLogs(), ServiceJsonContext.Default.ListRuntimeLogEntry),
                 "GetDiagnostics" => Ok(GetDiagnostics(), ServiceJsonContext.Default.RuntimeDiagnostics),
+                "GetConnectionTelemetry" => Ok(await GetConnectionTelemetryAsync(cancellationToken), ServiceJsonContext.Default.ConnectionTelemetry),
                 "GetProcesses" => Ok(GetProcesses(), ServiceJsonContext.Default.ListProcessSnapshot),
                 "GetGeneratedConfig" => Ok(new FileContentResult { Json = await ReadRedactedConfigAsync(cancellationToken) }, ServiceJsonContext.Default.FileContentResult),
                 "SaveRule" => await SaveRuleAsync(Read<ApplicationRule>(request.Payload, EasyBalanceJsonContext.Default.ApplicationRule), cancellationToken),
@@ -202,6 +208,8 @@ public sealed class EasyBalanceRuntime(
     private RuntimeStatus GetStatus()
     {
         var snapshot = core.Snapshot;
+        var balanced = _settings.DefaultPolicy.LoadBalanceEnabled && snapshot.CoreRunning;
+        var weighted = balanced ? core.WeightedSnapshot : null;
         return new RuntimeStatus
         {
             RoutingEnabled = _settings.Enabled,
@@ -218,13 +226,144 @@ public sealed class EasyBalanceRuntime(
                 return new PolicyRouteStatus
                 {
                     PolicyId = policy.Id, Name = policy.Name,
-                    ActiveIPv4Interface = v4?.ActiveInterfaceId,
-                    ActiveIPv6Interface = v6?.ActiveInterfaceId,
-                    NoHealthyIPv4Interface = v4?.NoHealthyInterface ?? false,
-                    NoHealthyIPv6Interface = v6?.NoHealthyInterface ?? false
+                    ActiveIPv4Interface = balanced && policy.Id == _settings.DefaultPolicy.Id ? "Balanced across two interfaces" : v4?.ActiveInterfaceId,
+                    ActiveIPv6Interface = balanced && policy.Id == _settings.DefaultPolicy.Id && _settings.Ipv6Enabled ? "Balanced across two interfaces" : v6?.ActiveInterfaceId,
+                    NoHealthyIPv4Interface = balanced && policy.Id == _settings.DefaultPolicy.Id
+                        ? weighted!.Egresses.All(egress => !egress.Available || egress.WeightPercent == 0)
+                        : v4?.NoHealthyInterface ?? false,
+                    NoHealthyIPv6Interface = balanced && policy.Id == _settings.DefaultPolicy.Id && _settings.Ipv6Enabled
+                        ? weighted!.Egresses.All(egress => !egress.Available || egress.WeightPercent == 0)
+                        : v6?.NoHealthyInterface ?? false
                 };
             }).ToList()
         };
+    }
+
+    private async Task<ConnectionTelemetry> GetConnectionTelemetryAsync(CancellationToken cancellationToken)
+    {
+        var sample = core.Snapshot.CoreRunning
+            ? await core.Control.GetConnectionsAsync(cancellationToken)
+            : new SingBoxConnectionsSnapshot(0, 0, []);
+        AppSettings settings;
+        Dictionary<(string Policy, AddressFamilyKind Family), string?> activeRoutes;
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            settings = _settings;
+            activeRoutes = _policyRuntime.ToDictionary(pair => pair.Key, pair => pair.Value.ActiveInterfaceId);
+        }
+        finally { _gate.Release(); }
+
+        var adaptersById = health.Adapters.ToDictionary(adapter => adapter.Id, StringComparer.OrdinalIgnoreCase);
+        var weighted = core.WeightedSnapshot;
+        var byTag = adaptersById.Values.ToDictionary(adapter => SingBoxConfigGenerator.OutboundTag(adapter.Id), adapter => adapter,
+            StringComparer.OrdinalIgnoreCase);
+        var result = new ConnectionTelemetry
+        {
+            SampledAt = DateTimeOffset.UtcNow,
+            LastError = weighted.LastError,
+            UploadTotal = sample.UploadTotal,
+            DownloadTotal = sample.DownloadTotal
+        };
+        var activeIds = new HashSet<string>(StringComparer.Ordinal);
+        var activeCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var connection in sample.Connections)
+        {
+            var isWeighted = connection.Chains.Contains("easybalance-weighted", StringComparer.OrdinalIgnoreCase);
+            var actual = isWeighted
+                ? MatchWeightedConnection(connection, weighted.Connections, adaptersById)
+                : connection.Chains.Select(tag => byTag.GetValueOrDefault(tag)).FirstOrDefault(adapter => adapter is not null);
+            var interfaceId = actual?.Id ?? string.Empty;
+            if (!isWeighted && !string.IsNullOrEmpty(interfaceId))
+                activeCounts[interfaceId] = activeCounts.GetValueOrDefault(interfaceId) + 1;
+            var processPath = connection.ProcessPath ?? string.Empty;
+            var process = connection.Process ?? Path.GetFileName(processPath);
+            result.Connections.Add(new LiveConnection
+            {
+                Id = connection.Id,
+                Process = string.IsNullOrWhiteSpace(process) ? "Unknown" : process,
+                ProcessPath = processPath,
+                DestinationIp = connection.DestinationIp ?? string.Empty,
+                DestinationHost = connection.DestinationHost ?? string.Empty,
+                DestinationPort = connection.DestinationPort ?? string.Empty,
+                Network = connection.Network,
+                ActualOutbound = actual?.Name ?? "Unknown",
+                PredictedOutbound = PredictOutbound(settings, activeRoutes, adaptersById, connection),
+                UploadBytes = connection.Upload,
+                DownloadBytes = connection.Download,
+                StartedAt = connection.Start
+            });
+            if (isWeighted || string.IsNullOrEmpty(connection.Id) || string.IsNullOrEmpty(interfaceId)) continue;
+            activeIds.Add(connection.Id);
+            lock (_trafficGate)
+            {
+                _seenTraffic.TryGetValue(connection.Id, out var previous);
+                var deltaUpload = previous.InterfaceId == interfaceId ? Math.Max(0, connection.Upload - previous.Upload) : connection.Upload;
+                var deltaDownload = previous.InterfaceId == interfaceId ? Math.Max(0, connection.Download - previous.Download) : connection.Download;
+                _observedTraffic.TryGetValue(interfaceId, out var total);
+                _observedTraffic[interfaceId] = (total.Upload + deltaUpload, total.Download + deltaDownload);
+                _seenTraffic[connection.Id] = (connection.Upload, connection.Download, interfaceId);
+            }
+        }
+
+        lock (_trafficGate)
+        {
+            foreach (var stale in _seenTraffic.Keys.Where(id => !activeIds.Contains(id)).ToArray()) _seenTraffic.Remove(stale);
+            foreach (var adapter in adaptersById.Values.Where(adapter => adapter.IsUserAllowed))
+            {
+                _observedTraffic.TryGetValue(adapter.Id, out var total);
+                var proxy = weighted.Egresses.FirstOrDefault(egress => egress.InterfaceId == adapter.Id);
+                result.Outbounds.Add(new OutboundTraffic
+                {
+                    InterfaceId = adapter.Id,
+                    Name = adapter.Name,
+                    UploadBytes = total.Upload + (proxy?.UploadBytes ?? 0),
+                    DownloadBytes = total.Download + (proxy?.DownloadBytes ?? 0),
+                    ActiveConnections = activeCounts.GetValueOrDefault(adapter.Id) + (proxy?.ActiveConnections ?? 0),
+                    Available = proxy?.Available ?? adapter.IsUserAllowed,
+                    Error = proxy?.Error,
+                    TargetPercent = settings.DefaultPolicy.LoadBalanceEnabled ? proxy?.WeightPercent : null
+                });
+            }
+        }
+        return result;
+    }
+
+    private static NetworkAdapterInfo? MatchWeightedConnection(SingBoxConnectionInfo connection,
+        IReadOnlyList<WeightedSocksConnectionSnapshot> proxyConnections,
+        IReadOnlyDictionary<string, NetworkAdapterInfo> adapters)
+    {
+        if (string.IsNullOrWhiteSpace(connection.DestinationIp) ||
+            !int.TryParse(connection.DestinationPort, out var port)) return null;
+        var matches = proxyConnections.Where(item => item.DestinationPort == port &&
+            string.Equals(item.DestinationIp, connection.DestinationIp, StringComparison.OrdinalIgnoreCase) &&
+            (connection.Start is null || Math.Abs((item.StartedAt - connection.Start.Value).TotalSeconds) < 5)).ToArray();
+        return matches.Length == 1 ? adapters.GetValueOrDefault(matches[0].InterfaceId) : null;
+    }
+
+    private static string PredictOutbound(AppSettings settings,
+        IReadOnlyDictionary<(string Policy, AddressFamilyKind Family), string?> activeRoutes,
+        IReadOnlyDictionary<string, NetworkAdapterInfo> adapters,
+        SingBoxConnectionInfo connection)
+    {
+        var path = connection.ProcessPath;
+        var name = connection.Process ?? (path is null ? null : Path.GetFileName(path));
+        if (string.IsNullOrWhiteSpace(path) && string.IsNullOrWhiteSpace(name)) return "Unknown (process unavailable)";
+        var rule = settings.ApplicationRules.Where(value => value.Enabled)
+            .OrderByDescending(value => !string.IsNullOrWhiteSpace(value.ExecutablePath))
+            .ThenByDescending(value => value.Priority).ThenBy(value => value.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value.ExecutablePath)
+                ? string.Equals(value.ExecutablePath, path, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(value.ProcessName, name, StringComparison.OrdinalIgnoreCase));
+        var policy = new[] { settings.DefaultPolicy }.Concat(settings.Policies)
+            .FirstOrDefault(value => value.Enabled && string.Equals(value.Id, rule?.PolicyId, StringComparison.OrdinalIgnoreCase))
+            ?? settings.DefaultPolicy;
+        string Label(string? id) => id is not null && adapters.TryGetValue(id, out var adapter) ? adapter.Name : "Unknown";
+        if (policy.Id == settings.DefaultPolicy.Id && policy.LoadBalanceEnabled)
+            return $"{Label(policy.PrimaryInterfaceId)} {policy.PrimaryTrafficPercent}% / {Label(policy.FallbackInterfaceId)} {100 - policy.PrimaryTrafficPercent}%";
+        var family = connection.DestinationIp?.Contains(':') == true ? AddressFamilyKind.IPv6 : AddressFamilyKind.IPv4;
+        var selected = activeRoutes.GetValueOrDefault((policy.Id, family)) ?? policy.PrimaryInterfaceId;
+        return Label(selected);
     }
 
     private RuntimeDiagnostics GetDiagnostics()
@@ -320,6 +459,7 @@ public sealed class EasyBalanceRuntime(
         var selected = draft.Policies.FirstOrDefault(value => value.Id == id);
         if (selected is null) return Fail("Policy not found.");
         draft.Policies.Remove(selected);
+        draft.DefaultPolicy.LoadBalanceEnabled = false;
         draft.Policies.Add(draft.DefaultPolicy);
         draft.DefaultPolicy = selected;
         return await ApplySettingsAsync(draft, cancellationToken);
@@ -383,6 +523,14 @@ public sealed class EasyBalanceRuntime(
         if (policies.Any(value => value.FailureThreshold < 1 || value.RecoveryThreshold < 1 ||
                                   value.RecoveryStabilization < TimeSpan.Zero || value.MinimumSwitchHoldTime < TimeSpan.Zero))
             throw new ArgumentException("Policy health thresholds and stabilization times must be nonnegative, with thresholds greater than zero.");
+        if (settings.DefaultPolicy.LoadBalanceEnabled &&
+            (string.IsNullOrWhiteSpace(settings.DefaultPolicy.PrimaryInterfaceId) ||
+             string.IsNullOrWhiteSpace(settings.DefaultPolicy.FallbackInterfaceId) ||
+             string.Equals(settings.DefaultPolicy.PrimaryInterfaceId, settings.DefaultPolicy.FallbackInterfaceId, StringComparison.OrdinalIgnoreCase) ||
+             settings.DefaultPolicy.PrimaryTrafficPercent is < 0 or > 100))
+            throw new ArgumentException("Balanced routing requires two different default-policy interfaces and a primary traffic target from 0 to 100 percent.");
+        if (settings.Policies.Any(value => value.LoadBalanceEnabled))
+            throw new ArgumentException("Traffic balancing is supported only for the default policy.");
         if (settings.ApplicationRules.Any(value => string.IsNullOrWhiteSpace(value.Id)) ||
             settings.ApplicationRules.GroupBy(value => value.Id, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
             throw new ArgumentException("Rule IDs must be nonempty and unique, ignoring case.");
@@ -543,6 +691,12 @@ public sealed class EasyBalanceRuntime(
         var node = JsonNode.Parse(await File.ReadAllTextAsync(GeneratedConfigPath, cancellationToken));
         if (node?["experimental"]?["clash_api"] is JsonObject api)
             api["secret"] = "[redacted]";
+        if (node?["outbounds"] is JsonArray outbounds)
+        {
+            foreach (var outbound in outbounds.OfType<JsonObject>())
+                if (string.Equals((string?)outbound["tag"], "easybalance-weighted", StringComparison.Ordinal))
+                    outbound["password"] = "[redacted]";
+        }
         return node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? string.Empty;
     }
 

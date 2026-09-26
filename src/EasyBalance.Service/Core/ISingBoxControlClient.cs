@@ -13,6 +13,9 @@ public interface ISingBoxControlClient
 
     Task<IReadOnlyList<SingBoxOutboundInfo>> GetOutboundsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Returns a read-only snapshot of active Clash API connections and cumulative traffic totals.</summary>
+    Task<SingBoxConnectionsSnapshot> GetConnectionsAsync(CancellationToken cancellationToken = default);
+
     Task<SingBoxSelectorState?> GetSelectorStateAsync(string selectorTag, CancellationToken cancellationToken = default);
 
     /// <summary>Switches a selector and confirms the selected outbound with a fresh API query.</summary>
@@ -42,3 +45,25 @@ public sealed record SingBoxSelectorState(
     string Tag,
     string SelectedOutboundTag,
     IReadOnlyList<string> AvailableOutboundTags);
+
+/// <summary>A point-in-time view of active connections and the core's cumulative traffic counters.</summary>
+public sealed record SingBoxConnectionsSnapshot(
+    long UploadTotal,
+    long DownloadTotal,
+    IReadOnlyList<SingBoxConnectionInfo> Connections);
+
+/// <summary>Connection metadata exposed by sing-box's Clash-compatible /connections endpoint.</summary>
+public sealed record SingBoxConnectionInfo(
+    string Id,
+    string Network,
+    string? SourceIp,
+    string? SourcePort,
+    string? DestinationIp,
+    string? DestinationPort,
+    string? DestinationHost,
+    string? Process,
+    string? ProcessPath,
+    IReadOnlyList<string> Chains,
+    long Upload,
+    long Download,
+    DateTimeOffset? Start);

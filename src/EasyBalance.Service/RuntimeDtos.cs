@@ -80,6 +80,44 @@ public sealed class InterfaceTestResult
     public double? LatencyMs { get; set; }
 }
 
+public sealed class ConnectionTelemetry
+{
+    public DateTimeOffset SampledAt { get; set; }
+    public string? LastError { get; set; }
+    public long UploadTotal { get; set; }
+    public long DownloadTotal { get; set; }
+    public List<OutboundTraffic> Outbounds { get; set; } = [];
+    public List<LiveConnection> Connections { get; set; } = [];
+}
+
+public sealed class OutboundTraffic
+{
+    public string InterfaceId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public long UploadBytes { get; set; }
+    public long DownloadBytes { get; set; }
+    public int ActiveConnections { get; set; }
+    public int? TargetPercent { get; set; }
+    public bool Available { get; set; } = true;
+    public string? Error { get; set; }
+}
+
+public sealed class LiveConnection
+{
+    public string Id { get; set; } = string.Empty;
+    public string Process { get; set; } = string.Empty;
+    public string ProcessPath { get; set; } = string.Empty;
+    public string DestinationIp { get; set; } = string.Empty;
+    public string DestinationHost { get; set; } = string.Empty;
+    public string DestinationPort { get; set; } = string.Empty;
+    public string Network { get; set; } = string.Empty;
+    public string ActualOutbound { get; set; } = string.Empty;
+    public string PredictedOutbound { get; set; } = string.Empty;
+    public long UploadBytes { get; set; }
+    public long DownloadBytes { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+}
+
 public sealed class DiagnosticMetadata
 {
     public string EasyBalanceVersion { get; set; } = "0.1.0";
@@ -99,5 +137,6 @@ public sealed class DiagnosticMetadata
 [JsonSerializable(typeof(FileContentResult))]
 [JsonSerializable(typeof(DiagnosticsBlobResult))]
 [JsonSerializable(typeof(InterfaceTestResult))]
+[JsonSerializable(typeof(ConnectionTelemetry))]
 [JsonSerializable(typeof(DiagnosticMetadata))]
 internal partial class ServiceJsonContext : JsonSerializerContext { }

@@ -12,6 +12,7 @@ public sealed class HealthBrushConverter : IValueConverter
         var state = value?.ToString() ?? string.Empty;
         var key = state.Contains("healthy", StringComparison.OrdinalIgnoreCase)
             || state.Equals("running", StringComparison.OrdinalIgnoreCase)
+            || state.Contains("connected", StringComparison.OrdinalIgnoreCase)
             ? "SuccessBrush"
             : state.Contains("down", StringComparison.OrdinalIgnoreCase)
                 || state.Contains("unavailable", StringComparison.OrdinalIgnoreCase)

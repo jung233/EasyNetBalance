@@ -181,7 +181,7 @@ jobs:
           }
           Copy-Item -LiteralPath $upstreamLicense -Destination (Join-Path $licenses 'sing-box-LICENSE.txt')
           $gplLicense = Join-Path $licenses 'GPL-3.0.txt'
-          Invoke-WebRequest -Uri 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile $gplLicense
+          Copy-Item -LiteralPath '.\licenses\GPL-3.0.txt' -Destination $gplLicense
           $gplText = [System.IO.File]::ReadAllText($gplLicense)
           if ($gplText -notmatch 'GNU GENERAL PUBLIC LICENSE' -or $gplText -notmatch 'Version 3, 29 June 2007') {
             throw 'The downloaded GNU license text did not match the full GPL-3.0 license.'

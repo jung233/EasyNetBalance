@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -95,6 +96,56 @@ public sealed class SingBoxControlClient : ISingBoxControlClient, IDisposable
         }
 
         return result;
+    }
+
+    public async Task<SingBoxConnectionsSnapshot> GetConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, "connections", content: null, cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        using var document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException("The sing-box control API returned an invalid connections snapshot.");
+        }
+
+        var connections = new List<SingBoxConnectionInfo>();
+        if (TryGetPropertyIgnoreCase(root, "connections", out var items) && items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var metadata = TryGetPropertyIgnoreCase(item, "metadata", out var metadataValue) && metadataValue.ValueKind == JsonValueKind.Object
+                    ? metadataValue
+                    : default;
+                connections.Add(new SingBoxConnectionInfo(
+                    ReadOptionalString(item, "id") ?? string.Empty,
+                    ReadOptionalString(metadata, "network") ?? string.Empty,
+                    ReadOptionalString(metadata, "sourceIP"),
+                    ReadOptionalString(metadata, "sourcePort"),
+                    ReadOptionalString(metadata, "destinationIP"),
+                    ReadOptionalString(metadata, "destinationPort"),
+                    ReadOptionalString(metadata, "host"),
+                    ReadOptionalString(metadata, "process"),
+                    ReadOptionalString(metadata, "processPath"),
+                    ReadStringArray(item, "chains"),
+                    ReadCounter(item, "upload"),
+                    ReadCounter(item, "download"),
+                    ReadTimestamp(item, "start")));
+            }
+        }
+
+        return new SingBoxConnectionsSnapshot(
+            ReadCounter(root, "uploadTotal"),
+            ReadCounter(root, "downloadTotal"),
+            connections);
     }
 
     public async Task<SingBoxSelectorState?> GetSelectorStateAsync(string selectorTag, CancellationToken cancellationToken = default)
@@ -287,6 +338,90 @@ public sealed class SingBoxControlClient : ISingBoxControlClient, IDisposable
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static string? ReadOptionalString(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var text = value.GetString()?.Trim();
+        return string.IsNullOrEmpty(text) ? null : text;
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString()?.Trim())
+            .Where(item => !string.IsNullOrEmpty(item))
+            .Select(item => item!)
+            .ToArray();
+    }
+
+    private static long ReadCounter(JsonElement element, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var value))
+        {
+            return 0;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            if (value.TryGetInt64(out var signed))
+            {
+                return Math.Max(0, signed);
+            }
+
+            if (value.TryGetUInt64(out var unsigned))
+            {
+                return unsigned > long.MaxValue ? long.MaxValue : (long)unsigned;
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.String &&
+                 long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return Math.Max(0, parsed);
+        }
+
+        return 0;
+    }
+
+    private static DateTimeOffset? ReadTimestamp(JsonElement element, string propertyName)
+    {
+        var value = ReadOptionalString(element, propertyName);
+        return DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var timestamp)
+            ? timestamp
+            : null;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
 
     private static HttpClient CreateHttpClient() => new(new SocketsHttpHandler
     {

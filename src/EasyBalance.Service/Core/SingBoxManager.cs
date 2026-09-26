@@ -28,6 +28,7 @@ public sealed class SingBoxManager : IAsyncDisposable
     private readonly SingBoxCapabilitiesDetector _capabilitiesDetector;
     private readonly SingBoxConfigGenerator _configGenerator;
     private readonly ISingBoxControlClient _controlClient;
+    private readonly WeightedSocksServer _weightedProxy = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _snapshotLock = new();
     private readonly Queue<SingBoxCoreLogEntry> _recentLogs = new();
@@ -60,9 +61,17 @@ public sealed class SingBoxManager : IAsyncDisposable
         _capabilitiesDetector = capabilitiesDetector;
         _configGenerator = configGenerator;
         _controlClient = controlClient;
+        _weightedProxy.DiagnosticReceived += message => AddLog("Warning", message);
     }
 
     public ISingBoxControlClient Control => _controlClient;
+    public WeightedSocksServerSnapshot WeightedSnapshot => _weightedProxy.Snapshot;
+
+    public void UpdateWeightedEgresses(AppSettings settings, IReadOnlyCollection<NetworkAdapterInfo> adapters)
+    {
+        if (settings.DefaultPolicy.LoadBalanceEnabled && _weightedProxy.Endpoint is not null)
+            _weightedProxy.UpdateEgresses(CreateWeightedEgresses(settings, adapters));
+    }
 
     public string GeneratedConfigPath => GetDefaultConfigPath();
 
@@ -143,7 +152,8 @@ public sealed class SingBoxManager : IAsyncDisposable
             var executablePath = ResolveExecutablePath(settings);
             var capabilities = await _capabilitiesDetector.DetectAsync(executablePath, cancellationToken).ConfigureAwait(false);
             capabilities.EnsureCompatible();
-            var generated = _configGenerator.Generate(settings, adapters, capabilities);
+            var endpoint = await EnsureWeightedProxyAsync(settings, adapters, cancellationToken).ConfigureAwait(false);
+            var generated = _configGenerator.Generate(settings, adapters, capabilities, endpoint);
             EnsureSecureConfigDirectory();
             temporaryPath = GetStagingPath();
             await WriteSecureConfigAsync(temporaryPath, generated.Json, cancellationToken).ConfigureAwait(false);
@@ -187,7 +197,17 @@ public sealed class SingBoxManager : IAsyncDisposable
             var priorGenerated = _generatedConfig;
             var priorCapabilities = _capabilities;
             var priorExecutablePath = _executablePath;
-            var transaction = await PrepareValidatedConfigurationAsync(settings, adapters, cancellationToken).ConfigureAwait(false);
+            PreparedConfiguration transaction;
+            try
+            {
+                transaction = await PrepareValidatedConfigurationAsync(settings, adapters, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (priorSettings?.DefaultPolicy.LoadBalanceEnabled == true)
+                    UpdateWeightedEgresses(priorSettings, priorAdapters);
+                throw;
+            }
             var activePath = GeneratedConfigPath;
             var backupPath = activePath + ".rollback-" + Guid.NewGuid().ToString("N");
             var promoted = false;
@@ -231,6 +251,8 @@ public sealed class SingBoxManager : IAsyncDisposable
                 _executablePath = priorExecutablePath;
                 _lastSettings = priorSettings;
                 _lastAdapters = priorAdapters;
+                if (priorSettings?.DefaultPolicy.LoadBalanceEnabled == true)
+                    UpdateWeightedEgresses(priorSettings, priorAdapters);
 
                 if (shouldRun && _process is null && priorGenerated is not null && priorCapabilities is not null && priorExecutablePath is not null)
                 {
@@ -316,6 +338,7 @@ public sealed class SingBoxManager : IAsyncDisposable
             }
 
             await StopProcessUnderGateAsync(markExplicit: true, cancellationToken).ConfigureAwait(false);
+            await _weightedProxy.StopAsync(cancellationToken).ConfigureAwait(false);
             SetFaulted(null);
             _controlClient.Clear();
         }
@@ -350,6 +373,7 @@ public sealed class SingBoxManager : IAsyncDisposable
             {
                 disposableControlClient.Dispose();
             }
+            await _weightedProxy.DisposeAsync().ConfigureAwait(false);
 
             _disposed = true;
         }
@@ -400,7 +424,8 @@ public sealed class SingBoxManager : IAsyncDisposable
         var executablePath = ResolveExecutablePath(settings);
         var capabilities = await _capabilitiesDetector.DetectAsync(executablePath, cancellationToken).ConfigureAwait(false);
         capabilities.EnsureCompatible();
-        var generated = _configGenerator.Generate(settings, adapters, capabilities);
+        var endpoint = await EnsureWeightedProxyAsync(settings, adapters, cancellationToken).ConfigureAwait(false);
+        var generated = _configGenerator.Generate(settings, adapters, capabilities, endpoint);
         EnsureSecureConfigDirectory();
         var stagingPath = GetStagingPath();
         try
@@ -956,6 +981,47 @@ public sealed class SingBoxManager : IAsyncDisposable
         "sing-box.json");
 
     private static string GetStagingPath() => GetDefaultConfigPath() + ".stage-" + Guid.NewGuid().ToString("N");
+
+    private Task<WeightedSocksEndpoint?> EnsureWeightedProxyAsync(
+        AppSettings settings, IReadOnlyCollection<NetworkAdapterInfo> adapters, CancellationToken cancellationToken)
+    {
+        if (!settings.DefaultPolicy.LoadBalanceEnabled) return Task.FromResult<WeightedSocksEndpoint?>(null);
+        return StartWeightedProxyAsync(settings, adapters, cancellationToken);
+    }
+
+    private async Task<WeightedSocksEndpoint?> StartWeightedProxyAsync(
+        AppSettings settings, IReadOnlyCollection<NetworkAdapterInfo> adapters, CancellationToken cancellationToken) =>
+        await _weightedProxy.StartAsync(CreateWeightedEgresses(settings, adapters), cancellationToken).ConfigureAwait(false);
+
+    private static WeightedSocksEgressConfig[] CreateWeightedEgresses(
+        AppSettings settings, IReadOnlyCollection<NetworkAdapterInfo> adapters)
+    {
+        var policy = settings.DefaultPolicy;
+        var primary = adapters.FirstOrDefault(adapter => adapter.IsUserAllowed &&
+            string.Equals(adapter.Id, policy.PrimaryInterfaceId, StringComparison.OrdinalIgnoreCase));
+        var fallback = adapters.FirstOrDefault(adapter => adapter.IsUserAllowed &&
+            string.Equals(adapter.Id, policy.FallbackInterfaceId, StringComparison.OrdinalIgnoreCase));
+        if (primary is null || fallback is null || primary.Id == fallback.Id)
+            throw new InvalidOperationException("Balanced routing needs two allowed, connected default-policy interfaces.");
+
+        bool IsDown(NetworkAdapterInfo adapter)
+        {
+            var ipv4Down = adapter.IPv4Health is HealthState.Down or HealthState.Unavailable;
+            var ipv6Down = !settings.Ipv6Enabled || adapter.IPv6Health is HealthState.Down or HealthState.Unavailable;
+            return ipv4Down && ipv6Down;
+        }
+
+        var primaryDown = IsDown(primary);
+        var fallbackDown = IsDown(fallback);
+        var primaryWeight = primaryDown ? 0 : fallbackDown ? 100 : policy.PrimaryTrafficPercent;
+        var fallbackWeight = fallbackDown ? 0 : primaryDown ? 100 : 100 - policy.PrimaryTrafficPercent;
+
+        return
+        [
+            new(primary.Id, primary.Name, primaryWeight),
+            new(fallback.Id, fallback.Name, fallbackWeight)
+        ];
+    }
 
     private static string ResolveExecutablePath(AppSettings settings)
     {

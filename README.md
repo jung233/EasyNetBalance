@@ -4,7 +4,7 @@ EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网
 
 ## 状态
 
-当前仓库提供 MVP 源码、Solution、单元测试和可选集成测试。按本次开发约束，**本地尚未运行 build、测试、sing-box 配置校验或真实网卡故障转移**。本机目前只有 .NET 8 运行时，没有 .NET SDK。GitHub Actions 在 Windows 上编译解决方案并发布预览包，但不执行测试；测试须等用户批准。对选定的 sing-box.exe 仍需在目标机器实际执行配置检查和连通性验证。
+当前仓库提供 MVP 源码、Solution、单元测试和可选集成测试。按本次开发约束，**本地尚未运行 build、自动测试、sing-box 配置校验或真实网卡故障转移**。此前按用户指示检查过预览版 UI 启动故障。GitHub Actions 在 Windows 上编译解决方案并发布预览包，但不执行测试；完整路由测试须等用户批准。
 
 ## 结构
 
@@ -17,7 +17,7 @@ EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网
 | `tests/EasyBalance.IntegrationTests` | 可选 sing-box CLI 集成测试 |
 | `sing-box/` | 本地参考用的上游源码树（Git 忽略）；不是发布包内容 |
 
-数据平面完全由 sing-box 提供。Service 生成 TUN、direct outbound、每策略每地址族一个 selector，以及 `process_path`/`process_name` 路由规则。网卡持久 ID 是 `NetworkInterface.Id` GUID；生成配置时才解析当前网卡名称作为 `bind_interface`。同策略应用共用 selector。健康状态按网卡和地址族共享，正常 failover 只调用本机控制 API，不重启 sing-box。新连接走新网卡；已有 TCP 连接可能中断，由应用重连。
+通常的数据平面由 sing-box 提供。Service 生成 TUN、direct outbound、每策略每地址族一个 selector，以及 `process_path`/`process_name` 路由规则。启用默认策略的双出口比例后，该策略经过 Service 内仅监听 loopback、随机凭据保护的 SOCKS5 转发层；它按实际上传和下载字节的累计份额为新连接选 WAN，并将目标 socket 绑定到对应物理网卡。网卡持久 ID 是 `NetworkInterface.Id` GUID；生成配置时才解析当前网卡名称作为 `bind_interface`。健康状态按网卡和地址族共享；已有连接不会因比例变化而迁移。
 
 ## 要求与构建
 
@@ -51,6 +51,8 @@ dotnet test .\tests\EasyBalance.Tests\EasyBalance.Tests.csproj -c Release
 
 在 Interfaces 页面选择可用网卡；在 Failover/Policies 中建立主网卡和备用网卡，设置默认策略；在 Application Rules 中选当前进程或浏览 EXE，指定策略。完整路径优先于同名进程。不存在的 EXE 规则保留，便于以后重新安装。
 
+默认策略可启用双出口流量分配并用滑杆指定主出口目标字节比例。Service 读取两出口实际转发的上传和下载字节，在后续新连接上补偿偏离目标的份额；它不能精确控制正在传输的单条连接。某出口不可用时，新连接只使用可用出口；恢复后再逐步接近设定比例。
+
 验证 Ethernet → Wi-Fi：准备两张均可联网的网卡，策略主网卡选 Ethernet、备用选 Wi-Fi，启动 Routing；确认 Dashboard 中两个地址族都健康；断开 Ethernet 并观察 IPv4/IPv6 selector 和日志。IPv4-only：只让 Ethernet 的 IPv4 失效，确认 IPv4 切 Wi-Fi 而 IPv6 保持 Ethernet。IPv6-only：只让 Ethernet 的 IPv6 失效，确认 IPv6 切 Wi-Fi 而 IPv4 保持 Ethernet。恢复主网卡后，若开启 AutoFailback，连续成功、稳定期和最短保持时间均满足后回切。
 
 Service 使用绑定指定网卡和地址族的 HTTPS socket probe，稳定时低频轮换 endpoint；首次失败追加探测，Down 后较快探测恢复。Windows 网络变化事件会合并后刷新网卡。不要仅凭网卡 Link Up 判断 Internet 可用。
@@ -59,7 +61,7 @@ Service 使用绑定指定网卡和地址族的 HTTPS socket probe，稳定时�
 
 ## 诊断与排障
 
-Dashboard 和 Diagnostics 显示核心状态、网卡、路由与探测计数；Logs 显示最近事件。Advanced 可校验生成配置和导出本地诊断 ZIP。勾选 IP 遮盖时，导出包会遮盖网卡地址并省略可能包含 IP 的日志、设置和生成配置。控制 API 只监听 `127.0.0.1`，使用随机 secret。UI 读取的生成配置会遮盖 secret；诊断包不包含未遮盖的生成配置。不会上传遥测。
+Dashboard 动态显示出口流量；Diagnostics 显示活动连接、进程、目标 IP、已识别的实际出口与按规则预计的出口。sing-box 未提供进程字段或无法唯一对应代理连接时，界面显示 Unknown，不推断。直连出口的累计字节依赖活动连接采样，短于采样间隔的连接可能漏计；双出口转发层直接计数实际经过的字节。Logs 显示最近事件。Advanced 可校验生成配置和导出本地诊断 ZIP。勾选 IP 遮盖时，导出包会遮盖网卡地址并省略可能包含 IP 的日志、设置和生成配置。控制 API 只监听 `127.0.0.1`，使用随机 secret；双出口代理也只监听 loopback 并使用随机凭据。UI 读取的生成配置会遮盖 secret 和代理密码；诊断包不包含未遮盖的生成配置。不会上传遥测。
 
 如果服务显示 core faulted，先检查 sing-box 路径、Windows Service 管理员权限、`with_clash_api` 构建标记、TUN 驱动和最近日志。若互联网不通或疑似路由环路，检查每个 direct outbound 的 `bind_interface` 是否为当前物理网卡名称，并分别测试 IPv4/IPv6。VPN、Hyper-V、WSL、Docker 等环境可先关闭 strict_route，再逐步排查路由冲突。
 
@@ -68,3 +70,4 @@ Dashboard 和 Diagnostics 显示核心状态、网卡、路由与探测计数；
 单一健康调度循环在空闲时异步等待，不按应用或策略创建探测器，不持续扫描进程。UI 退出后内存归零是指 UI 进程结束，不包括 Service 和 sing-box。CPU、内存和探测规模目标尚未实测。
 
 EasyBalance 不提供已有 TCP 连接跨网卡无缝迁移、单流带宽叠加、MPTCP 或包级多路径聚合。故障转移只改变后续新连接。不同 sing-box 构建可能缺少所需能力；Service 将拒绝不兼容二进制。当前版本的真实 TUN、DNS、IPv6、睡眠唤醒和与其他 VPN 共存仍需在目标 Windows 环境验证。
+双出口转发层的域名解析使用 Windows 系统 DNS；解析请求本身不保证走选中的 WAN。SOCKS5 UDP 分片不受支持。连接展示依赖 sing-box 控制接口提供的字段，无法识别时会明确显示 Unknown。

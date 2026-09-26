@@ -44,11 +44,13 @@ public sealed class SingBoxConfigGenerator
 {
     private const string TunTag = "easybalance-tun";
     private const string BlockTag = "easybalance-unavailable";
+    private const string WeightedTag = "easybalance-weighted";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public SingBoxGeneratedConfig Generate(
         AppSettings settings,
         IReadOnlyCollection<NetworkAdapterInfo> adapters,
-        SingBoxCapabilities capabilities)
+        SingBoxCapabilities capabilities,
+        WeightedSocksEndpoint? weightedEndpoint = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(adapters);
@@ -99,6 +101,29 @@ public sealed class SingBoxConfigGenerator
         if (needsUnavailableOutbound)
         {
             outbounds.Add(new JsonObject { ["type"] = "block", ["tag"] = BlockTag });
+        }
+
+        if (settings.DefaultPolicy.LoadBalanceEnabled)
+        {
+            if (weightedEndpoint is null)
+                throw new InvalidOperationException("The weighted WAN proxy is not ready.");
+            outbounds.Add(new JsonObject
+            {
+                ["type"] = "socks",
+                ["tag"] = WeightedTag,
+                ["version"] = "5",
+                ["server"] = weightedEndpoint.Address.ToString(),
+                ["server_port"] = weightedEndpoint.Port,
+                ["username"] = weightedEndpoint.Username,
+                ["password"] = weightedEndpoint.Password
+            });
+            selectorByPolicyFamily[(settings.DefaultPolicy.Id, AddressFamilyKind.IPv4)] = WeightedTag;
+            selectorByPolicyFamily[(settings.DefaultPolicy.Id.ToLowerInvariant(), AddressFamilyKind.IPv4)] = WeightedTag;
+            if (settings.Ipv6Enabled)
+            {
+                selectorByPolicyFamily[(settings.DefaultPolicy.Id, AddressFamilyKind.IPv6)] = WeightedTag;
+                selectorByPolicyFamily[(settings.DefaultPolicy.Id.ToLowerInvariant(), AddressFamilyKind.IPv6)] = WeightedTag;
+            }
         }
 
         var rules = new JsonArray();
