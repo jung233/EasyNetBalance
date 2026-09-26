@@ -24,7 +24,7 @@
                 <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="18" Width="275" Margin="0,0,12,0">
                     <StackPanel>
                         <TextBlock Text="NETWORK" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" />
-                        <TextBlock Text="{Binding Adapters.Count}" FontSize="27" FontWeight="SemiBold" Margin="0,8,0,2" />
+                        <TextBlock Text="{Binding Adapters.Count, Mode=OneWay}" FontSize="27" FontWeight="SemiBold" Margin="0,8,0,2" />
                         <TextBlock Text="interfaces discovered" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
                         <TextBlock Text="IPv4 and IPv6 health are independent" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,7,0,0" />
                     </StackPanel>
@@ -33,7 +33,7 @@
                     <StackPanel>
                         <TextBlock Text="APPLICATION RULES" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" />
                         <TextBlock Text="{Binding RuleCount}" FontSize="27" FontWeight="SemiBold" Margin="0,8,0,2" />
-                        <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"><Run Text="application rules · " /><Run Text="{Binding Policies.Count}" /><Run Text=" policies" /></TextBlock>
+                        <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"><Run Text="application rules · " /><Run Text="{Binding Policies.Count, Mode=OneWay}" /><Run Text=" policies" /></TextBlock>
                         <TextBlock Text="Unmatched apps use the default policy" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,7,0,0" />
                     </StackPanel>
                 </Border>
