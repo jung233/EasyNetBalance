@@ -1146,7 +1146,7 @@ public sealed class WeightedSocksServer : IAsyncDisposable
         Stream source,
         Stream destination,
         Socket destinationSocket,
-        Action<int> onBytes,
+        Action<long> onBytes,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[32 * 1024];
