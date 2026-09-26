@@ -55,6 +55,7 @@ jobs:
           dotnet publish .\src\EasyBalance.Service\EasyBalance.Service.csproj
           --configuration Release --runtime win-x64 --self-contained true
           -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableWindowsTargeting=true
           --output "$env:RUNNER_TEMP\easybalance-publish\Service"
 
@@ -85,6 +86,7 @@ jobs:
           dotnet publish .\src\EasyBalance.UI\EasyBalance.UI.csproj
           --configuration Release --runtime win-x64 --self-contained true
           -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
           -p:PublishRoot="$env:RUNNER_TEMP\easybalance-publish"
           -p:EnableWindowsTargeting=true
           --output "$env:RUNNER_TEMP\easybalance-publish\UI"
