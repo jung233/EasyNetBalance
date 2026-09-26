@@ -1140,6 +1140,10 @@ public sealed class SingBoxManager : IAsyncDisposable
                 : replacementRights;
             foreach (FileSystemAccessRule rule in access.GetAccessRules(includeExplicit: true, includeInherited: true, targetType: typeof(SecurityIdentifier)))
             {
+                // An inherit-only ACE does not grant rights on this directory. Its effect on
+                // descendants is checked when the walk reaches each descendant's actual ACL.
+                if ((rule.PropagationFlags & PropagationFlags.InheritOnly) != 0)
+                    continue;
                 if (rule.AccessControlType == AccessControlType.Allow &&
                     rule.IdentityReference is SecurityIdentifier sid && !trustedOwners.Contains(sid) &&
                     (((rule.FileSystemRights & disallowedRights) != 0) ||
