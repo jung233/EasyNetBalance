@@ -1,6 +1,6 @@
 # EasyBalance
 
-EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网卡选择出口。Windows Service 负责网卡发现、IPv4/IPv6 独立健康检查、故障转移和 sing-box 生命周期；WPF 界面通过本机 Named Pipe 管理服务。关闭界面不会停止路由。
+EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网卡选择出口。单个 `EasyBalance.exe` 首次启动时请求管理员权限，将 Windows Service 和 sing-box 解包到受保护目录并启动后台服务；WPF 界面通过本机 Named Pipe 管理服务。关闭界面不会停止路由。
 
 ## 状态
 
@@ -23,7 +23,7 @@ EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网
 
 - Windows 10/11，.NET 8 SDK（构建时）和管理员权限（安装服务及 TUN）。
 - 带 `with_clash_api` 构建标记的兼容 sing-box Windows 二进制。Service 会运行 `sing-box version` 检测实际能力；不在配置中钉死某个发行版本。
-- GitHub Release 包已将官方 `sing-box.exe` 放在 Service 目录的 `core\sing-box.exe`，安装该包无需另外下载核心或 .NET 运行时。Service 与 UI 使用压缩的单文件自包含发布，保留各自目录以确保双击 UI 能正常启动。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在 Advanced 中设置管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
+- GitHub Release 包只需运行一个 `EasyBalance.exe`，其中嵌入了 Service 和官方 sing-box 核心，首次启动会自动完成安装。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在 Advanced 中设置管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
 
 GitHub Actions 在 `main` 更新时创建预览 Release，捆绑未修改的上游 sing-box Windows 二进制，并在同一 Release 提供对应源码包及许可文本。归属与再分发说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -36,26 +36,14 @@ dotnet test .\tests\EasyBalance.Tests\EasyBalance.Tests.csproj -c Release
 
 ## 运行
 
-调试时先在提升权限的终端运行 Service，然后以普通用户启动 UI：
+发布包直接运行单个 `EasyBalance.exe`。源码调试时可分别启动 Service 和 UI：
 
 ```powershell
 .\src\EasyBalance.Service\bin\Release\net8.0-windows\EasyBalance.Service.exe --console
 .\src\EasyBalance.UI\bin\Release\net8.0-windows\EasyBalance.UI.exe
 ```
 
-安装服务时，将发布包中的所有文件一起放入固定目录，不要拆开目录结构，在提升权限的 PowerShell 中运行包根目录的 `Install-EasyBalance.ps1`。脚本会注册并启动 Service；UI 启动前必须先完成此步骤。
-
-```powershell
-sc.exe create EasyBalance binPath= "C:\Program Files\EasyBalance\EasyBalance.Service.exe" start= auto
-sc.exe start EasyBalance
-```
-
-卸载：
-
-```powershell
-sc.exe stop EasyBalance
-sc.exe delete EasyBalance
-```
+首次运行发布包中的 `EasyBalance.exe` 时接受一次管理员提示，程序会自动注册并启动 Service；不需要手动运行脚本或拆分目录。卸载可在管理员 PowerShell 中执行 `sc.exe stop EasyBalance; sc.exe delete EasyBalance`。
 
 服务配置位于 `%ProgramData%\EasyBalance\settings.json`，生成配置位于 `generated\sing-box.json`。配置写入采用同目录临时文件和原子替换。UI 可用 Named Pipe 管理规则；UI 不直接启动 sing-box。关闭 UI 后，服务和 sing-box 继续运行。默认不保留托盘进程。
 

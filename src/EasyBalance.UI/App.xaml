@@ -3,8 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:EasyBalance.UI.ViewModels"
              xmlns:svc="clr-namespace:EasyBalance.UI.Services"
-             xmlns:views="clr-namespace:EasyBalance.UI.Views"
-             StartupUri="MainWindow.xaml">
+             xmlns:views="clr-namespace:EasyBalance.UI.Views">
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVisibility" />
         <svc:HealthBrushConverter x:Key="HealthBrushConverter" />

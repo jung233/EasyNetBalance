@@ -49,7 +49,7 @@ public sealed class PipeClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Cannot connect to the EasyBalance service. Run Install-EasyBalance.ps1 as Administrator, then start the EasyBalance service.");
+            throw new TimeoutException("Cannot connect to the EasyBalance service. Close and reopen EasyBalance.exe, then approve the administrator prompt.");
         }
         catch (IOException ex)
         {

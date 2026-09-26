@@ -58,11 +58,34 @@ jobs:
           -p:EnableWindowsTargeting=true
           --output "$env:RUNNER_TEMP\easybalance-publish\Service"
 
+      - name: Stage official sing-box for the single-entry UI payload
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $env:GITHUB_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'EasyBalance-release-workflow' }
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/SagerNet/sing-box/releases/latest' -Headers $headers
+          $version = ([string]$release.tag_name) -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Latest sing-box release is not stable: $($release.tag_name)" }
+          $assetName = "sing-box-$version-windows-amd64.zip"
+          $asset = @($release.assets | Where-Object { $_.name -ceq $assetName })
+          if ($asset.Count -ne 1) { throw "Could not find exactly one $assetName asset." }
+          $archive = Join-Path $env:RUNNER_TEMP $assetName
+          $extract = Join-Path $env:RUNNER_TEMP 'sing-box-payload'
+          Invoke-WebRequest -Uri $asset[0].browser_download_url -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
+          $binary = @(Get-ChildItem -LiteralPath $extract -Filter sing-box.exe -File -Recurse)
+          if ($binary.Count -ne 1) { throw 'The official sing-box archive did not contain exactly one sing-box.exe.' }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\easybalance-publish\Service\core" | Out-Null
+          Copy-Item -LiteralPath $binary[0].FullName -Destination "$env:RUNNER_TEMP\easybalance-publish\Service\core\sing-box.exe" -Force
+
       - name: Publish UI
         run: >-
           dotnet publish .\src\EasyBalance.UI\EasyBalance.UI.csproj
           --configuration Release --runtime win-x64 --self-contained true
           -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:PublishRoot="$env:RUNNER_TEMP\easybalance-publish"
           -p:EnableWindowsTargeting=true
           --output "$env:RUNNER_TEMP\easybalance-publish\UI"
 
@@ -114,10 +137,9 @@ jobs:
           $sourceArchive = Join-Path $downloadRoot "sing-box-$singBoxVersion-source.tar.gz"
           $binaryExtract = Join-Path $downloadRoot 'binary'
           $sourceExtract = Join-Path $downloadRoot 'source'
-          $serviceCore = Join-Path $packageRoot 'Service\core'
           $licenses = Join-Path $packageRoot 'licenses'
           New-Item -ItemType Directory -Force -Path $downloadRoot, $binaryExtract, $sourceExtract,
-            (Join-Path $packageRoot 'Service'), (Join-Path $packageRoot 'UI'), $serviceCore, $licenses | Out-Null
+            $packageRoot, $licenses | Out-Null
 
           Invoke-WebRequest -Uri $binaryUri -OutFile $binaryArchive
           if ((Get-Item -LiteralPath $binaryArchive).Length -ne [long]$binaryAsset.size) {
@@ -163,17 +185,9 @@ jobs:
             throw 'The downloaded GNU license text did not match the full GPL-3.0 license.'
           }
 
-          Get-ChildItem -LiteralPath (Join-Path $publishRoot 'Service') -File -Recurse |
-            Where-Object Extension -ne '.pdb' |
-            Copy-Item -Destination (Join-Path $packageRoot 'Service') -Recurse -Force
-          Get-ChildItem -LiteralPath (Join-Path $publishRoot 'UI') -File -Recurse |
-            Where-Object Extension -ne '.pdb' |
-            Copy-Item -Destination (Join-Path $packageRoot 'UI') -Recurse -Force
+          Copy-Item -LiteralPath (Join-Path $publishRoot 'UI\EasyBalance.UI.exe') -Destination (Join-Path $packageRoot 'EasyBalance.exe') -Force
           Copy-Item -LiteralPath '.\README.md' -Destination (Join-Path $packageRoot 'README.md')
           Copy-Item -LiteralPath '.\THIRD_PARTY_NOTICES.md' -Destination (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md')
-          Copy-Item -LiteralPath '.\scripts\Install-EasyBalance.ps1' -Destination (Join-Path $packageRoot 'Install-EasyBalance.ps1')
-          Copy-Item -LiteralPath '.\scripts\Uninstall-EasyBalance.ps1' -Destination (Join-Path $packageRoot 'Uninstall-EasyBalance.ps1')
-          Copy-Item -LiteralPath $executables[0].FullName -Destination (Join-Path $serviceCore 'sing-box.exe') -Force
           $packageReleaseTag = if ($env:GITHUB_REF -eq 'refs/heads/main') {
             "v0.1.0-preview.$env:GITHUB_RUN_NUMBER"
           } else {
@@ -193,9 +207,7 @@ jobs:
           Set-Content -LiteralPath (Join-Path $packageRoot 'SING-BOX-SOURCE.txt') -Value $sourceInfo -Encoding utf8
 
           $requiredPackageFiles = @(
-            (Join-Path $packageRoot 'Service\EasyBalance.Service.exe'),
-            (Join-Path $packageRoot 'UI\EasyBalance.UI.exe'),
-            (Join-Path $serviceCore 'sing-box.exe'),
+            (Join-Path $packageRoot 'EasyBalance.exe'),
             (Join-Path $licenses 'sing-box-LICENSE.txt'),
             $gplLicense,
             (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md'),
