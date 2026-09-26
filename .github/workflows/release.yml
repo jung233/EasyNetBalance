@@ -112,10 +112,10 @@ jobs:
           $sourceArchive = Join-Path $downloadRoot "sing-box-$singBoxVersion-source.tar.gz"
           $binaryExtract = Join-Path $downloadRoot 'binary'
           $sourceExtract = Join-Path $downloadRoot 'source'
-          $serviceCore = Join-Path $packageRoot 'Service\core'
+          $serviceCore = Join-Path $packageRoot 'core'
           $licenses = Join-Path $packageRoot 'licenses'
           New-Item -ItemType Directory -Force -Path $downloadRoot, $binaryExtract, $sourceExtract,
-            (Join-Path $packageRoot 'Service'), (Join-Path $packageRoot 'UI'), $serviceCore, $licenses | Out-Null
+            $packageRoot, $serviceCore, $licenses | Out-Null
 
           Invoke-WebRequest -Uri $binaryUri -OutFile $binaryArchive
           if ((Get-Item -LiteralPath $binaryArchive).Length -ne [long]$binaryAsset.size) {
@@ -161,8 +161,26 @@ jobs:
             throw 'The downloaded GNU license text did not match the full GPL-3.0 license.'
           }
 
-          Copy-Item -Path (Join-Path $publishRoot 'Service\*') -Destination (Join-Path $packageRoot 'Service') -Recurse -Force
-          Copy-Item -Path (Join-Path $publishRoot 'UI\*') -Destination (Join-Path $packageRoot 'UI') -Recurse -Force
+          function Merge-PublishDirectory([string]$sourceRoot) {
+            foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -File -Recurse) {
+              if ($item.Extension -ieq '.pdb') { continue }
+              $relativePath = [System.IO.Path]::GetRelativePath($sourceRoot, $item.FullName)
+              $destination = Join-Path $packageRoot $relativePath
+              $destinationDirectory = Split-Path -Parent $destination
+              New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
+              if (Test-Path -LiteralPath $destination -PathType Leaf) {
+                $existingHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+                $incomingHash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+                if ($existingHash -ne $incomingHash) {
+                  throw "Published files collide with different contents: $relativePath"
+                }
+                continue
+              }
+              Copy-Item -LiteralPath $item.FullName -Destination $destination
+            }
+          }
+          Merge-PublishDirectory (Join-Path $publishRoot 'Service')
+          Merge-PublishDirectory (Join-Path $publishRoot 'UI')
           Copy-Item -LiteralPath '.\README.md' -Destination (Join-Path $packageRoot 'README.md')
           Copy-Item -LiteralPath '.\THIRD_PARTY_NOTICES.md' -Destination (Join-Path $packageRoot 'THIRD_PARTY_NOTICES.md')
           Copy-Item -LiteralPath $executables[0].FullName -Destination (Join-Path $serviceCore 'sing-box.exe') -Force
@@ -185,6 +203,8 @@ jobs:
           Set-Content -LiteralPath (Join-Path $packageRoot 'SING-BOX-SOURCE.txt') -Value $sourceInfo -Encoding utf8
 
           $requiredPackageFiles = @(
+            (Join-Path $packageRoot 'EasyBalance.Service.exe'),
+            (Join-Path $packageRoot 'EasyBalance.UI.exe'),
             (Join-Path $serviceCore 'sing-box.exe'),
             (Join-Path $licenses 'sing-box-LICENSE.txt'),
             $gplLicense,

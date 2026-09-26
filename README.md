@@ -23,7 +23,7 @@ EasyBalance 是 Windows 桌面应用，使用 sing-box TUN 按进程为不同网
 
 - Windows 10/11，.NET 8 SDK（构建时）和管理员权限（安装服务及 TUN）。
 - 带 `with_clash_api` 构建标记的兼容 sing-box Windows 二进制。Service 会运行 `sing-box version` 检测实际能力；不在配置中钉死某个发行版本。
-- GitHub Release 包已将官方 `sing-box.exe` 放在 `Service\core\sing-box.exe`，安装该包无需另外下载核心。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在 Advanced 中设置管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
+- GitHub Release 包已将官方 `sing-box.exe` 放在两个程序旁的 `core\sing-box.exe`，安装该包无需另外下载核心或 .NET 运行时。Service 与 UI 共用同一套自包含运行时文件，减少重复体积。自行从源码构建时，可将兼容二进制放在 Service 可执行文件旁的 `core\sing-box.exe`，或在 Advanced 中设置管理员保护目录下的完整路径。仅管理员应替换二进制。可选的本地 `sing-box/` 源码树不等同于 `core/sing-box.exe`。
 
 GitHub Actions 在 `main` 更新时创建预览 Release，捆绑未修改的上游 sing-box Windows 二进制，并在同一 Release 提供对应源码包及许可文本。归属与再分发说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -43,7 +43,7 @@ dotnet test .\tests\EasyBalance.Tests\EasyBalance.Tests.csproj -c Release
 .\src\EasyBalance.UI\bin\Release\net8.0-windows\EasyBalance.UI.exe
 ```
 
-安装服务时，将发布后的 Service 文件、Shared 依赖以及 `core\sing-box.exe` 放入固定目录，再在提升权限的终端运行：
+安装服务时，将发布包中的所有文件一起放入固定目录，不要拆开共用运行时文件，再在提升权限的终端运行：
 
 ```powershell
 sc.exe create EasyBalance binPath= "C:\Program Files\EasyBalance\EasyBalance.Service.exe" start= auto
