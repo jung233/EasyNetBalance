@@ -729,7 +729,7 @@ public sealed class EasyBalanceRuntime(
                 if (string.Equals((string?)outbound["tag"], "easybalance-weighted", StringComparison.Ordinal))
                     outbound["password"] = "[redacted]";
         }
-        return node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? string.Empty;
+        return node?.ToJsonString(JsonNodeSerialization.Indented) ?? string.Empty;
     }
 
     private static async Task WriteZipJsonAsync<T>(ZipArchive zip, string name, T value,

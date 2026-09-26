@@ -194,7 +194,7 @@ public sealed class SingBoxControlClient : ISingBoxControlClient, IDisposable
             try
             {
                 using var content = new StringContent(
-                    new JsonObject { ["name"] = outboundTag }.ToJsonString(),
+                    new JsonObject { ["name"] = outboundTag }.ToJsonString(JsonNodeSerialization.Compact),
                     Encoding.UTF8,
                     "application/json");
                 using var response = await SendAsync(

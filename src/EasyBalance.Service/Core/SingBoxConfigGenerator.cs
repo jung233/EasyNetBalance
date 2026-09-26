@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using EasyBalance.Shared;
 
@@ -45,7 +44,6 @@ public sealed class SingBoxConfigGenerator
     private const string TunTag = "easybalance-tun";
     private const string BlockTag = "easybalance-unavailable";
     private const string WeightedTag = "easybalance-weighted";
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public SingBoxGeneratedConfig Generate(
         AppSettings settings,
         IReadOnlyCollection<NetworkAdapterInfo> adapters,
@@ -225,7 +223,7 @@ public sealed class SingBoxConfigGenerator
         };
 
         return new SingBoxGeneratedConfig(
-            configuration.ToJsonString(JsonOptions),
+            configuration.ToJsonString(JsonNodeSerialization.Indented),
             apiPort,
             apiSecret,
             selectorTags,
