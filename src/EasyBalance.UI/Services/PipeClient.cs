@@ -64,7 +64,7 @@ public sealed class PipeClient
     }
 
     private static int TimeoutSeconds(string method) => method is
-        "SaveRule" or "DeleteRule" or "SavePolicy" or "DeletePolicy" or "SetDefaultPolicy" or "SaveSettings" or
+        "SaveRule" or "DeleteRule" or "SavePolicy" or "DeletePolicy" or "SetDefaultPolicy" or "SetTrafficRatio" or "SaveSettings" or
         "SetInterfaceUsability" or "EnableRouting" or "DisableRouting" or "RestartCore" or "ValidateConfig" or "ExportDiagnostics" or "TestInterface"
         ? 45
         : 5;

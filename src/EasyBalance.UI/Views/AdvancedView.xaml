@@ -11,7 +11,7 @@
                             <TextBlock Text="Routing configuration" FontSize="16" FontWeight="SemiBold" />
                             <TextBlock Text="Changes are validated and applied by EasyBalance Service." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" />
                         </StackPanel>
-                        <Button Style="{StaticResource PrimaryButton}" Command="{Binding ToggleRoutingCommand}" Content="{Binding ToggleRoutingText}" HorizontalAlignment="Right" />
+                        <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Command="{Binding ToggleRoutingCommand}" Content="{Binding ToggleRoutingText}" HorizontalAlignment="Right" />
                     </Grid>
                     <WrapPanel Margin="0,16,0,8">
                         <CheckBox Content="Enable IPv6 routing" IsChecked="{Binding IPv6Enabled}" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,24,12" />
@@ -30,12 +30,12 @@
                         <TextBlock Text="Detected sing-box version" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
                         <TextBlock Text="{Binding DetectedVersion}" HorizontalAlignment="Right" FontWeight="SemiBold" />
                     </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" Content="Save settings" Command="{Binding SaveCommand}" />
-                        <Button Style="{StaticResource SecondaryButton}" Content="Validate config" Command="{Binding ValidateCommand}" Margin="8,0,0,0" />
-                        <Button Style="{StaticResource SecondaryButton}" Content="Restart core" Command="{Binding RestartCommand}" Margin="8,0,0,0" />
-                        <Button Style="{StaticResource SecondaryButton}" Content="Open data directory" Command="{Binding OpenDataDirectoryCommand}" Margin="8,0,0,0" />
-                    </StackPanel>
+                    <WrapPanel Margin="0,16,0,0">
+                        <Button Style="{StaticResource PrimaryButton}" Content="Save settings" Command="{Binding SaveCommand}" Margin="0,0,8,8" />
+                        <Button Style="{StaticResource SecondaryButton}" Content="Validate config" Command="{Binding ValidateCommand}" Margin="0,0,8,8" />
+                        <Button Style="{StaticResource SecondaryButton}" Content="Restart core" Command="{Binding RestartCommand}" Margin="0,0,8,8" />
+                        <Button Style="{StaticResource SecondaryButton}" Content="Open data directory" Command="{Binding OpenDataDirectoryCommand}" Margin="0,0,8,8" />
+                    </WrapPanel>
                 </StackPanel>
             </Border>
 

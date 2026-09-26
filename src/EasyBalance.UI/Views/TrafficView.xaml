@@ -1,0 +1,115 @@
+<UserControl x:Class="EasyBalance.UI.Views.TrafficView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" />
+            <RowDefinition Height="*" MinHeight="190" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="LIVE MONITOR" Style="{StaticResource EyebrowText}" />
+                <TextBlock Text="Traffic across your WAN exits" FontSize="20" FontWeight="SemiBold" Margin="0,5,0,0" />
+                <TextBlock Text="{Binding SampleText}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,4,0,0" />
+                <TextBlock Text="Rates are calculated from consecutive byte counter samples." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="0,3,0,0" />
+            </StackPanel>
+            <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Refresh now" Command="{Binding RefreshCommand}" VerticalAlignment="Center" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,16">
+            <StackPanel>
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource SurfaceCard}" Padding="16" Margin="0,0,10,0">
+                        <StackPanel><TextBlock Text="TOTAL UPLOADED" Style="{StaticResource EyebrowText}" /><TextBlock Text="{Binding UploadedTotal}" FontSize="24" FontWeight="SemiBold" Margin="0,7,0,0" /></StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Style="{StaticResource SurfaceCard}" Padding="16" Margin="0,0,10,0">
+                        <StackPanel><TextBlock Text="TOTAL DOWNLOADED" Style="{StaticResource EyebrowText}" /><TextBlock Text="{Binding DownloadedTotal}" FontSize="24" FontWeight="SemiBold" Margin="0,7,0,0" /></StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource SurfaceCard}" Padding="16">
+                        <StackPanel><TextBlock Text="ACTIVE CONNECTIONS" Style="{StaticResource EyebrowText}" /><TextBlock Text="{Binding ConnectionCount}" FontSize="24" FontWeight="SemiBold" Margin="0,7,0,0" /></StackPanel>
+                    </Border>
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding Outbounds}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource SurfaceCard}" Padding="16" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                                        <TextBlock Text="{Binding InterfaceId}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding InterfaceId}" Margin="0,4,0,0" />
+                                        <TextBlock x:Name="Availability" Text="{Binding Availability}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,7,0,0" />
+                                        <TextBlock Text="{Binding Error}" FontSize="10" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" MaxHeight="28" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Style="{StaticResource MetricPanel}" VerticalAlignment="Center">
+                                        <StackPanel><TextBlock Text="CONNECTIONS / TARGET" Style="{StaticResource EyebrowText}" /><StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Text="{Binding Connections}" FontSize="19" FontWeight="SemiBold" /><TextBlock Text="  /  " FontSize="19" Foreground="{DynamicResource TextSecondaryBrush}" /><TextBlock Text="{Binding Target}" FontSize="19" FontWeight="SemiBold" /></StackPanel><TextBlock Text="{Binding ObservedShare, StringFormat='Observed now {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" /></StackPanel>
+                                    </Border>
+                                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,14,0,0"><TextBlock Text="UPLOAD NOW" Style="{StaticResource EyebrowText}" /><TextBlock Text="{Binding UploadRate}" FontSize="21" FontWeight="SemiBold" Margin="0,5,0,0" /><TextBlock Text="{Binding Uploaded, StringFormat='Cumulative {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" /></StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="0,14,0,0"><TextBlock Text="DOWNLOAD NOW" Style="{StaticResource EyebrowText}" /><TextBlock Text="{Binding DownloadRate}" FontSize="21" FontWeight="SemiBold" Margin="0,5,0,0" /><TextBlock Text="{Binding Downloaded, StringFormat='Cumulative {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" /></StackPanel>
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsAvailable}" Value="True"><Setter TargetName="Availability" Property="Foreground" Value="{DynamicResource SuccessBrush}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding IsAvailable}" Value="False"><Setter TargetName="Availability" Property="Foreground" Value="{DynamicResource DangerBrush}" /></DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding TelemetryMessage}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                <Border Style="{StaticResource SurfaceCard}" Padding="18" Margin="0,4,0,0">
+                    <StackPanel>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="Default policy traffic split" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Drag to preview. The target applies and saves automatically after a short pause; Apply now skips the wait." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
+                            <Border Grid.Column="1" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="9,5" VerticalAlignment="Center"><TextBlock Text="UNSAVED PREVIEW" Foreground="{DynamicResource AccentBrush}" FontSize="10" FontWeight="Bold" Visibility="{Binding IsBalanceDirty, Converter={StaticResource BoolVisibility}}" /></Border>
+                        </Grid>
+                        <Grid Margin="0,18,0,5"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding PrimaryName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding PrimaryPreview}" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" />
+                        </Grid>
+                        <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" IsEnabled="{Binding IsBalanceAvailable}" Value="{Binding PrimaryPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Grid Margin="0,4,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding FallbackName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding FallbackPreview}" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" />
+                        </Grid>
+                        <Grid Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding BalanceStatus}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource SecondaryButton}" Content="Reset" Command="{Binding ResetBalanceCommand}" Margin="0,0,8,0" /><Button Style="{StaticResource PrimaryButton}" Content="Apply now" Command="{Binding SaveBalanceCommand}" /></StackPanel>
+                        </Grid>
+                        <TextBlock Text="This slider controls the default policy's primary and fallback WAN. Every reported exit is shown above." FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,9,0,0" />
+                        <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding Message}" Foreground="{DynamicResource SuccessBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Style="{StaticResource SurfaceCard}" Padding="16" MinHeight="190">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="Active connections" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Actual exit is observed; predicted exit is the current routing decision." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" /></StackPanel>
+                    <TextBox Grid.Column="1" Width="240" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Filter process, destination, or exit" VerticalAlignment="Center" />
+                </Grid>
+                <DataGrid Grid.Row="1" ItemsSource="{Binding VisibleConnections}" HorizontalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="True">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Process" Width="150"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Process}" ToolTip="{Binding ProcessPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Destination IP" Binding="{Binding DestinationIp}" Width="140" />
+                        <DataGridTextColumn Header="Port" Binding="{Binding DestinationPort}" Width="65" />
+                        <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="150" />
+                        <DataGridTextColumn Header="Network" Binding="{Binding Network}" Width="85" />
+                        <DataGridTextColumn Header="Actual exit" Binding="{Binding ActualOutbound}" Width="135" />
+                        <DataGridTextColumn Header="Predicted exit" Binding="{Binding PredictedOutbound}" Width="145" />
+                        <DataGridTextColumn Header="Uploaded" Binding="{Binding UploadText}" Width="100" />
+                        <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadText}" Width="105" />
+                        <DataGridTextColumn Header="Started" Binding="{Binding StartedAtText}" Width="140" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

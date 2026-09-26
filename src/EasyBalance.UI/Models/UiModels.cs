@@ -118,7 +118,7 @@ public sealed class ActiveConnectionRow
         ProcessPath = TelemetryFormat.Text(item, "ProcessPath"),
         DestinationIp = TelemetryFormat.Text(item, "DestinationIp"),
         DestinationPort = TelemetryFormat.Text(item, "DestinationPort"),
-        Host = TelemetryFormat.Text(item, "Host"),
+        Host = TelemetryFormat.Text(item, "DestinationHost", "Host"),
         Network = TelemetryFormat.Text(item, "Network"),
         ActualOutbound = TelemetryFormat.Text(item, "ActualOutbound"),
         PredictedOutbound = TelemetryFormat.Text(item, "PredictedOutbound"),

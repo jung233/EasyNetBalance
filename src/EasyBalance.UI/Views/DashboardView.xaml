@@ -4,7 +4,7 @@
              xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="0,0,8,8">
-            <UniformGrid Columns="4" Margin="0,0,0,24">
+            <UniformGrid Columns="2" Margin="0,0,0,18">
                 <Border Style="{StaticResource SurfaceCard}" Padding="18" Margin="0,0,12,0">
                     <StackPanel>
                         <TextBlock Text="ROUTING" Style="{StaticResource EyebrowText}" />
@@ -58,7 +58,10 @@
                             <TextBlock Text="Outbound traffic" FontSize="16" FontWeight="SemiBold" />
                             <TextBlock Text="Per-interface byte counters reported by the service" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0" />
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding TelemetrySampledAt, StringFormat='Sampled {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding TelemetrySampledAt, StringFormat='Sampled {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <Button Style="{StaticResource PrimaryButton}" Content="Open live monitor" Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Traffic" />
+                        </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal" Margin="0,13,0,0">
                         <Border Style="{StaticResource MetricPanel}" Margin="0,0,8,0">

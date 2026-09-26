@@ -160,6 +160,7 @@ public sealed class EasyBalanceRuntime(
                 "SavePolicy" => await SavePolicyAsync(Read<RoutingPolicy>(request.Payload, EasyBalanceJsonContext.Default.RoutingPolicy), cancellationToken),
                 "DeletePolicy" => await DeletePolicyAsync(GetRequiredString(request.Payload, "id"), cancellationToken),
                 "SetDefaultPolicy" => await SetDefaultPolicyAsync(GetRequiredString(request.Payload, "id"), cancellationToken),
+                "SetTrafficRatio" => await SetTrafficRatioAsync(GetRequiredInt32(request.Payload, "primaryTrafficPercent"), cancellationToken),
                 "SaveSettings" => await ApplySettingsAsync(Read<AppSettings>(request.Payload, EasyBalanceJsonContext.Default.AppSettings), cancellationToken),
                 "SetInterfaceUsability" => await SetInterfaceUsabilityAsync(request.Payload, cancellationToken),
                 "EnableRouting" => await SetRoutingAsync(true, cancellationToken),
@@ -261,7 +262,7 @@ public sealed class EasyBalanceRuntime(
         var result = new ConnectionTelemetry
         {
             SampledAt = DateTimeOffset.UtcNow,
-            LastError = weighted.LastError,
+            LastError = weighted.LastError ?? core.Snapshot.LastError,
             UploadTotal = sample.UploadTotal,
             DownloadTotal = sample.DownloadTotal
         };
@@ -481,6 +482,37 @@ public sealed class EasyBalanceRuntime(
         var draft = CloneSettings();
         draft.Enabled = enabled;
         return await ApplySettingsAsync(draft, cancellationToken);
+    }
+
+    private async Task<PipeResponse> SetTrafficRatioAsync(int primaryTrafficPercent, CancellationToken cancellationToken)
+    {
+        if (primaryTrafficPercent is < 0 or > 100)
+            return Fail("The primary traffic target must be between 0 and 100 percent.");
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var previous = _settings;
+            var draft = CloneSettings();
+            draft.DefaultPolicy.PrimaryTrafficPercent = primaryTrafficPercent;
+            ValidateSettings(draft);
+            var currentAdapters = await GetAdaptersAsync(cancellationToken, draft);
+            core.UpdateWeightedEgresses(draft, currentAdapters);
+            try
+            {
+                await _store.WriteAsync(SettingsPath, draft, EasyBalanceJsonContext.Default.AppSettings, cancellationToken);
+            }
+            catch
+            {
+                core.UpdateWeightedEgresses(previous, currentAdapters);
+                throw;
+            }
+
+            _settings = draft;
+            Log("Information", "Settings", $"Default traffic target set to {primaryTrafficPercent}% / {100 - primaryTrafficPercent}%.");
+            return new PipeResponse { Success = true };
+        }
+        finally { _gate.Release(); }
     }
 
     private async Task<PipeResponse> ApplySettingsAsync(AppSettings draft, CancellationToken cancellationToken)
@@ -797,6 +829,10 @@ public sealed class EasyBalanceRuntime(
     private static bool GetRequiredBool(JsonElement? payload, string key) =>
         payload is { } value && value.TryGetProperty(key, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? property.GetBoolean() : throw new JsonException($"Missing {key}.");
+
+    private static int GetRequiredInt32(JsonElement? payload, string key) =>
+        payload is { } value && value.TryGetProperty(key, out var property) && property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number)
+            ? number : throw new JsonException($"Missing or invalid {key}.");
 
     private static PipeResponse Ok<T>(T value, JsonTypeInfo<T> typeInfo) =>
         new() { Success = true, Payload = JsonSerializer.SerializeToElement(value, typeInfo) };

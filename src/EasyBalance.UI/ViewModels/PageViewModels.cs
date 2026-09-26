@@ -64,6 +64,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         Service = new PipeClient();
         Dashboard = new DashboardViewModel(Service);
+        Traffic = new TrafficViewModel(Service);
         Rules = new RulesViewModel(Service);
         Interfaces = new InterfacesViewModel(Service);
         Failover = new FailoverViewModel(Service);
@@ -79,6 +80,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private PipeClient Service { get; }
     public DashboardViewModel Dashboard { get; }
+    public TrafficViewModel Traffic { get; }
     public RulesViewModel Rules { get; }
     public InterfacesViewModel Interfaces { get; }
     public FailoverViewModel Failover { get; }
@@ -98,6 +100,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (SetProperty(ref _currentPage, value))
             {
                 OnPropertyChanged(nameof(IsDashboardActive));
+                OnPropertyChanged(nameof(IsTrafficActive));
                 OnPropertyChanged(nameof(IsRulesActive));
                 OnPropertyChanged(nameof(IsInterfacesActive));
                 OnPropertyChanged(nameof(IsFailoverActive));
@@ -109,6 +112,7 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     public bool IsDashboardActive => ReferenceEquals(CurrentPage, Dashboard);
+    public bool IsTrafficActive => ReferenceEquals(CurrentPage, Traffic);
     public bool IsRulesActive => ReferenceEquals(CurrentPage, Rules);
     public bool IsInterfacesActive => ReferenceEquals(CurrentPage, Interfaces);
     public bool IsFailoverActive => ReferenceEquals(CurrentPage, Failover);
@@ -143,6 +147,7 @@ public sealed class MainWindowViewModel : ObservableObject
         CurrentPage = name switch
         {
             "Rules" => Rules,
+            "Traffic" => Traffic,
             "Interfaces" => Interfaces,
             "Failover" => Failover,
             "Logs" => Logs,
@@ -151,6 +156,7 @@ public sealed class MainWindowViewModel : ObservableObject
             _ => Dashboard
         };
         Dashboard.SetTelemetryActive(ReferenceEquals(CurrentPage, Dashboard));
+        Traffic.SetTelemetryActive(ReferenceEquals(CurrentPage, Traffic));
         Diagnostics.SetTelemetryActive(ReferenceEquals(CurrentPage, Diagnostics));
         _ = RefreshCurrentAsync();
     }

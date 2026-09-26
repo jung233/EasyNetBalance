@@ -1126,17 +1126,24 @@ public sealed class SingBoxManager : IAsyncDisposable
             }
 
             var isInsideInstallRoot = IsWithinRoot(current, trustedRoot);
+            // FullControl and Modify include read/execute bits. Using them as a bit mask
+            // incorrectly rejects the normal Users:ReadAndExecute ACL in Program Files.
+            const FileSystemRights replacementRights = FileSystemRights.Delete |
+                FileSystemRights.DeleteSubdirectoriesAndFiles |
+                FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership;
+            const FileSystemRights contentWriteRights = FileSystemRights.WriteData |
+                FileSystemRights.AppendData | FileSystemRights.WriteExtendedAttributes |
+                FileSystemRights.WriteAttributes;
+            const int genericAllOrWrite = 0x10000000 | 0x40000000;
             var disallowedRights = isInsideInstallRoot
-                ? FileSystemRights.Write | FileSystemRights.Modify | FileSystemRights.FullControl |
-                  FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles |
-                  FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership
-                : FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles |
-                  FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership;
+                ? replacementRights | contentWriteRights
+                : replacementRights;
             foreach (FileSystemAccessRule rule in access.GetAccessRules(includeExplicit: true, includeInherited: true, targetType: typeof(SecurityIdentifier)))
             {
                 if (rule.AccessControlType == AccessControlType.Allow &&
                     rule.IdentityReference is SecurityIdentifier sid && !trustedOwners.Contains(sid) &&
-                    (rule.FileSystemRights & disallowedRights) != 0)
+                    (((rule.FileSystemRights & disallowedRights) != 0) ||
+                     (((int)rule.FileSystemRights & (isInsideInstallRoot ? genericAllOrWrite : 0x10000000)) != 0)))
                 {
                     throw new SecurityException(isInsideInstallRoot
                         ? "sing-box and its installation folders must not be writable by ordinary users."
