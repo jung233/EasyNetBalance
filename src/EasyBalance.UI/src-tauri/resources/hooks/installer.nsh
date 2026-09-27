@@ -3,7 +3,7 @@
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Stopping the existing EasyBalance service before replacing application files..."
   InitPluginsDir
-  File /oname=$PLUGINSDIR\stop-service.ps1 "${__FILEDIR__}\..\stop-service.ps1"
+  File /oname=$PLUGINSDIR\stop-service.ps1 "${__FILEDIR__}\..\..\..\..\resources\stop-service.ps1"
   StrCpy $R0 "$TEMP\EasyNetBalance-install-service-stop.log"
   Delete "$R0"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-service.ps1" -ServiceName EasyBalance -LogPath "$R0"'
