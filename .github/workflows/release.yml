@@ -104,7 +104,7 @@ jobs:
             if ([string]::IsNullOrWhiteSpace($expression) -and $licenseFiles.Count -gt 0) { $expression = 'See bundled license text: ' + (($licenseFiles | ForEach-Object { $_.Name }) -join ', ') }
             if ([string]::IsNullOrWhiteSpace($expression)) { $missing.Add("$($package.name) $($package.version) (license metadata missing)") }
             $inventory.Add("$($package.name) $($package.version) — $expression")
-            if ($licenseFiles.Count -eq 0) { $missing.Add("$($package.name) $($package.version) (license files missing)") }
+          if ($licenseFiles.Count -eq 0 -and [string]::IsNullOrWhiteSpace($expression)) { $missing.Add("$($package.name) $($package.version) (license files and metadata missing)") }
             foreach ($licenseFile in $licenseFiles) {
               $relativeLicensePath = $licenseFile.FullName.Substring($packageRoot.Length).TrimStart([char[]]@([char]'\', [char]'/'))
               $safeLicensePath = $relativeLicensePath -replace '[\\/]', '_'
