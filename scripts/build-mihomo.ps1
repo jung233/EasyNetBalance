@@ -22,7 +22,6 @@ if (($workflowPin | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Coun
 $RepositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $SourceRoot = [System.IO.Path]::GetFullPath($SourceRoot)
 $TauriRoot = [System.IO.Path]::GetFullPath($TauriRoot)
-$PatchPath = Join-Path $RepositoryRoot 'patches\mihomo-weighted-bytes.patch'
 
 function Invoke-CheckedNativeCommand {
     param(
@@ -41,17 +40,10 @@ try {
     if (-not (Test-Path -LiteralPath $SourceRoot -PathType Container)) {
         throw "Mihomo source checkout is missing: $SourceRoot"
     }
-    if (-not (Test-Path -LiteralPath $PatchPath -PathType Leaf)) {
-        throw "The tracked Mihomo patch is required to build EasyNetBalance: $PatchPath"
-    }
-
-    $actualCommit = (& git -C $SourceRoot rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or $actualCommit -cne $ExpectedCommit) {
-        throw "Mihomo source checkout must be pinned to $ExpectedCommit; found '$actualCommit'."
-    }
-    $remoteUrl = (& git -C $SourceRoot remote get-url origin).Trim()
-    if ($LASTEXITCODE -ne 0 -or $remoteUrl -notmatch '(?i)(github\.com[:/]MetaCubeX/mihomo(?:\.git)?$)') {
-        throw "Mihomo checkout origin does not identify ${ExpectedRepository}: '$remoteUrl'."
+    $weightedStrategy = Join-Path $SourceRoot 'adapter\outboundgroup\weighted_bytes.go'
+    $sourceMarker = Join-Path $SourceRoot 'EASYNETBALANCE-SOURCE.md'
+    if (-not (Test-Path -LiteralPath $weightedStrategy -PathType Leaf) -or -not (Test-Path -LiteralPath $sourceMarker -PathType Leaf)) {
+        throw 'The checked-in Mihomo source is missing the EasyNetBalance weighted-bytes implementation or provenance marker.'
     }
 
     $moduleFile = Join-Path $SourceRoot 'go.mod'
@@ -73,9 +65,7 @@ try {
         throw 'Pinned source identity or GPL-3.0 license verification failed; refusing to package an unknown core.'
     }
 
-    $patchHash = (Get-FileHash -LiteralPath $PatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, 'apply', '--check', $PatchPath) -FailureMessage 'The tracked Mihomo patch does not apply to the pinned source'
-    Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, 'apply', $PatchPath) -FailureMessage 'Could not apply the tracked Mihomo patch'
+    $patchHash = 'source-in-tree'
 
     $env:GOSUMDB = 'sum.golang.org'
     $moduleRows = $null
@@ -160,11 +150,6 @@ try {
     $moduleInventory | Sort-Object -Unique | Set-Content -LiteralPath (Join-Path $noticesRoot 'MIHOMO-GO-DEPENDENCIES.txt') -Encoding utf8
 
     $buildDate = [DateTime]::UtcNow.ToString('yyyy-MM-dd')
-    $patchCopy = Join-Path $SourceRoot 'EASYNETBALANCE-WEIGHTED-BYTES.patch'
-    $patchArchivePath = Join-Path $SourceRoot 'patches\mihomo-weighted-bytes.patch'
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $patchArchivePath) | Out-Null
-    Copy-Item -LiteralPath $PatchPath -Destination $patchCopy -Force
-    Copy-Item -LiteralPath $PatchPath -Destination $patchArchivePath -Force
     $buildReadme = @"
 EasyNetBalance Mihomo source build
 =================================
@@ -173,8 +158,7 @@ Upstream: https://github.com/$ExpectedRepository
 Upstream tag: $ExpectedTag
 Upstream commit: $ExpectedCommit
 EasyNetBalance weighted-bytes modification date: $buildDate
-Patch file: patches/mihomo-weighted-bytes.patch
-Patch SHA-256: $patchHash
+The weighted-bytes implementation is committed directly in this source tree.
 License: GPL-3.0; see LICENSE and vendor/licenses/.
 
 This source archive contains the matching patched Mihomo source and vendored
@@ -187,14 +171,9 @@ run in PowerShell from this directory:
   go build -mod=vendor -trimpath -buildvcs=false -o mihomo.exe .
 
 The distributed Windows x64 core was built with the same environment and
-command. The original upstream commit and the EasyNetBalance patch are both
-identified here for review.
+command. The original upstream commit is identified here for review.
 "@
     Set-Content -LiteralPath (Join-Path $SourceRoot 'EASYNETBALANCE-BUILD.md') -Value $buildReadme -Encoding utf8
-
-    Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, 'add', '-A') -FailureMessage 'Could not stage the patched Mihomo source'
-    Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, 'add', '-f', '--', 'vendor') -FailureMessage 'Could not include vendored Mihomo dependencies in corresponding source'
-    Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, '-c', 'user.name=EasyNetBalance packaging', '-c', 'user.email=packaging@users.noreply.github.com', 'commit', '--allow-empty', '-m', "Apply EasyNetBalance Mihomo patch ($buildDate)") -FailureMessage 'Could not prepare the patched Mihomo source archive'
 
     $binaryPath = Join-Path $coreDirectory 'mihomo.exe'
     $oldGoos = $env:GOOS
@@ -226,7 +205,7 @@ identified here for review.
         $archiveParent = Split-Path -Parent $SourceArchivePath
         New-Item -ItemType Directory -Force -Path $archiveParent | Out-Null
         $tarPath = [System.IO.Path]::ChangeExtension($SourceArchivePath, '.tar')
-        Invoke-CheckedNativeCommand -FilePath 'git' -ArgumentList @('-C', $SourceRoot, 'archive', '--format=tar', '--prefix=mihomo-' + $ExpectedTag + '-patched/', '--output=' + $tarPath, 'HEAD') -FailureMessage 'Could not export corresponding Mihomo source'
+        Invoke-CheckedNativeCommand -FilePath 'tar' -ArgumentList @('-cf', $tarPath, '-C', $SourceRoot, '.') -FailureMessage 'Could not export corresponding Mihomo source'
         $inputStream = [System.IO.File]::OpenRead($tarPath)
         $outputStream = [System.IO.File]::Create($SourceArchivePath)
         try {
@@ -249,13 +228,12 @@ Mihomo upstream tag: $ExpectedTag
 Mihomo upstream commit: $ExpectedCommit
 Mihomo upstream README and module identity verified against $ExpectedRepository.
 Mihomo license: GPL-3.0; upstream LICENSE and complete GPL-3.0 text are installed with EasyNetBalance.
-EasyNetBalance modification: patches/mihomo-weighted-bytes.patch, applied on $buildDate.
-Patch SHA-256: $patchHash
+EasyNetBalance modification: weighted-bytes source files committed in third_party/mihomo.
 Build environment: $goVersion; GOOS=windows; GOARCH=amd64; CGO_ENABLED=0.
 Build command: $buildCommand
 Bundled binary: core/mihomo.exe
 Bundled binary SHA-256: $binaryHash
-Corresponding source: attached mihomo-$ExpectedTag-source.tar.gz, containing the patched source, vendor tree, and patch.
+Corresponding source: attached mihomo-$ExpectedTag-source.tar.gz, containing the embedded source and vendor tree.
 Corresponding source archive SHA-256: $sourceHash
 "@
     Set-Content -LiteralPath (Join-Path $noticesRoot 'MIHOMO-SOURCE.txt') -Value $sourceInfo -Encoding utf8

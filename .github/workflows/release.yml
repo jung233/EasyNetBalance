@@ -28,14 +28,6 @@ jobs:
       - name: Check out EasyNetBalance
         uses: actions/checkout@v4
 
-      - name: Check out the pinned Mihomo source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.MIHOMO_REPOSITORY }}
-          ref: ${{ env.MIHOMO_COMMIT }}
-          path: .ci/mihomo
-          persist-credentials: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -51,7 +43,7 @@ jobs:
         with:
           go-version: 1.26.x
           cache: true
-          cache-dependency-path: .ci/mihomo/go.sum
+          cache-dependency-path: third_party/mihomo/go.sum
 
       - name: Install frontend dependencies
         working-directory: src/EasyBalance.UI
@@ -62,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           & .\scripts\build-mihomo.ps1 `
-            -SourceRoot '.\.ci\mihomo' `
+            -SourceRoot '.\third_party\mihomo' `
             -TauriRoot '.\src\EasyBalance.UI\src-tauri' `
             -SourceArchivePath (Join-Path $env:RUNNER_TEMP "mihomo-$env:MIHOMO_TAG-source.tar.gz")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

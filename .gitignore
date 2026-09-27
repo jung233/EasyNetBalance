@@ -9,6 +9,5 @@ sing-box/
 **/target/
 core/mihomo.exe
 mihomo-reference/
-/third_party/mihomo/
 /.ci/mihomo/
 /release-artifacts/
