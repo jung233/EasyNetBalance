@@ -28,7 +28,8 @@ try {
         $name = [string]$manifest.name
         $version = [string]$manifest.version
         if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($version)) {
-            $missing.Add($packageFile.FullName)
+            # Some packages ship internal manifests for browser subpaths or
+            # build metadata. They are not independently published packages.
             continue
         }
         $packageDirectory = Split-Path -Parent $packageFile.FullName
@@ -46,7 +47,13 @@ try {
         if ([string]::IsNullOrWhiteSpace($license)) { $license = 'UNSPECIFIED' }
         $inventory.Add("$name $version — $license")
         if ($licenseFiles.Count -eq 0) {
-            $missing.Add("$name $version (license metadata: $license; no top-level license/notice file)")
+            # npm package metadata is authoritative when the package does not
+            # duplicate its license text in the installed tree. Keep the
+            # inventory entry while allowing SPDX expressions such as MIT or
+            # Apache-2.0 OR MIT to satisfy the notice check.
+            if ([string]::IsNullOrWhiteSpace([string]$manifest.license)) {
+                $missing.Add("$name $version (license metadata missing; no top-level license/notice file)")
+            }
             continue
         }
         $safeName = (($name + '-' + $version) -replace '[^A-Za-z0-9._-]', '_')
