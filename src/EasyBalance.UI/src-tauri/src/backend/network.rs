@@ -102,7 +102,7 @@ fn configured_probe_targets(endpoints: Option<&Value>, family_key: &str, ipv6: b
         if url.scheme() != "https" { continue; }
         let Some(host) = url.host_str() else { continue; };
         let Some(port) = url.port_or_known_default() else { continue; };
-        let Ok(addresses) = (host, port).to_socket_addrs() else { continue; };
+        let Ok(mut addresses) = (host, port).to_socket_addrs() else { continue; };
         if let Some(address) = addresses.find(|address| address.is_ipv6() == ipv6) {
             if !targets.contains(&address) { targets.push(address); }
         }
