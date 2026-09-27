@@ -2,7 +2,6 @@ package outboundgroup
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"math"
 	"sync"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/buf"
-	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
 )
 
@@ -297,21 +295,11 @@ func (conn *weightedBytesConn) Read(bytes []byte) (int, error) {
 func (conn *weightedBytesConn) ReadBuffer(buffer *buf.Buffer) error {
 	err := conn.Conn.ReadBuffer(buffer); conn.counter.recordAt(time.Now(), 0, uint64(maxInt(0, buffer.Len()))); return err
 }
-func (conn *weightedBytesConn) UnwrapReader() (io.Reader, []N.CountFunc) {
-	reader, callbacks := conn.Conn.UnwrapReader()
-	callbacks = append(callbacks, func(count int64) { if count > 0 { conn.counter.recordAt(time.Now(), 0, uint64(count)) } })
-	return reader, callbacks
-}
 func (conn *weightedBytesConn) Write(bytes []byte) (int, error) {
 	n, err := conn.Conn.Write(bytes); conn.counter.recordAt(time.Now(), uint64(maxInt(0, n)), 0); return n, err
 }
 func (conn *weightedBytesConn) WriteBuffer(buffer *buf.Buffer) error {
 	count := buffer.Len(); err := conn.Conn.WriteBuffer(buffer); conn.counter.recordAt(time.Now(), uint64(maxInt(0, count)), 0); return err
-}
-func (conn *weightedBytesConn) UnwrapWriter() (io.Writer, []N.CountFunc) {
-	writer, callbacks := conn.Conn.UnwrapWriter()
-	callbacks = append(callbacks, func(count int64) { if count > 0 { conn.counter.recordAt(time.Now(), uint64(count), 0) } })
-	return writer, callbacks
 }
 
 type weightedBytesPacketConn struct { C.PacketConn; counter *proxyByteCounter }
