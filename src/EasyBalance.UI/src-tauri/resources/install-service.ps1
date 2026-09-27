@@ -69,6 +69,7 @@ try {
 
     # Remove only files recorded by a prior EasyNetBalance package. This keeps
     # upgrades tidy without deleting unrelated files from the installation root.
+    $LegacyCorePending = $false
     if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
         foreach ($RelativePath in [System.IO.File]::ReadAllLines($ManifestPath)) {
             if ([string]::IsNullOrWhiteSpace($RelativePath)) { continue }
@@ -83,6 +84,7 @@ try {
             # directory. Its ACL can deny deletion during an upgrade. The new
             # service runs the bundled resources\core\mihomo.exe instead.
             if ([string]::Equals($RelativePath.Replace('/', '\'), 'core\mihomo.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $LegacyCorePending = $true
                 continue
             }
             if (Test-Path -LiteralPath $PreviousFile -PathType Leaf) {
@@ -97,7 +99,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not set protected SYSTEM/Administrators ACLs on $DataDirectory (icacls exit code $LASTEXITCODE)."
     }
-    if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) { Remove-Item -LiteralPath $ManifestPath -Force }
+    # Keep the old manifest until the new LocalSystem service has removed the
+    # protected legacy copy. It is the authority for that one-time cleanup.
+    if (-not $LegacyCorePending -and (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        Remove-Item -LiteralPath $ManifestPath -Force
+    }
 
     $BinaryPath = '"' + $ServiceExecutable + '" --service'
     if ($null -eq $ExistingService) {

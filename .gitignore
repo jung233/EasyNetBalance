@@ -1,13 +1,4 @@
-**/bin/
-**/obj/
-.vs/
-core/sing-box.exe
-sing-box/
-*.user
 **/node_modules/
 **/dist/
 **/target/
-core/mihomo.exe
-mihomo-reference/
-/.ci/mihomo/
 /release-artifacts/

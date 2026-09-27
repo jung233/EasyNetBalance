@@ -59,6 +59,11 @@ fn service_main(_arguments: Vec<OsString>) {
             return;
         }
     };
+    if let Err(error) = cleanup_legacy_core() {
+        if let Ok(runtime) = runtime.lock() {
+            runtime.log("Warning", "Installer", &format!("Could not remove the obsolete Mihomo copy: {error}"));
+        }
+    }
     if status.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Running,
         controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
@@ -91,6 +96,60 @@ fn service_main(_arguments: Vec<OsString>) {
         exit_code: ServiceExitCode::Win32(0), checkpoint: 0,
         wait_hint: Duration::default(), process_id: None,
     });
+}
+
+#[cfg(windows)]
+fn cleanup_legacy_core() -> std::io::Result<()> {
+    use std::fs;
+    use std::os::windows::fs::MetadataExt;
+
+    const REPARSE_POINT: u32 = 0x400;
+    let executable = std::env::current_exe()?;
+    let Some(install_root) = executable.parent() else { return Ok(()); };
+    let Some(program_files) = std::env::var_os("ProgramFiles") else { return Ok(()); };
+    let expected_root = std::path::PathBuf::from(program_files).join("EasyNetBalance");
+    if !install_root.canonicalize()?.to_string_lossy().eq_ignore_ascii_case(&expected_root.canonicalize()?.to_string_lossy()) {
+        return Ok(());
+    }
+
+    let manifest = install_root.join(".easynetbalance-service-files.txt");
+    let entries = match fs::read_to_string(&manifest) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let recorded = entries.lines().map(str::trim).filter(|line| !line.is_empty()).collect::<Vec<_>>();
+    if recorded.is_empty() || recorded.iter().any(|line| !line.replace('/', "\\").eq_ignore_ascii_case("core\\mihomo.exe")) {
+        return Ok(());
+    }
+
+    let legacy_dir = install_root.join("core");
+    let directory_metadata = match fs::symlink_metadata(&legacy_dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::remove_file(manifest)?;
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    if !directory_metadata.is_dir() || directory_metadata.file_attributes() & REPARSE_POINT != 0 {
+        return Err(std::io::Error::other("legacy core is not a regular directory"));
+    }
+    let mut children = fs::read_dir(&legacy_dir)?;
+    if let Some(child) = children.next() {
+        let child = child?;
+        if !child.file_name().to_string_lossy().eq_ignore_ascii_case("mihomo.exe") || children.next().is_some() {
+            return Err(std::io::Error::other("legacy core contains unexpected files"));
+        }
+        let metadata = fs::symlink_metadata(child.path())?;
+        if !metadata.is_file() || metadata.file_attributes() & REPARSE_POINT != 0 {
+            return Err(std::io::Error::other("legacy Mihomo is not a regular file"));
+        }
+        fs::remove_file(child.path())?;
+    }
+    fs::remove_dir(legacy_dir)?;
+    fs::remove_file(manifest)?;
+    Ok(())
 }
 
 #[cfg(windows)]
