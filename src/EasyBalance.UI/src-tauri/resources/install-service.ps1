@@ -7,9 +7,13 @@ $ErrorActionPreference = 'Stop'
 
 try {
     $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
-    $ExpectedRoot = [System.IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'EasyNetBalance'))
+    # NSIS is a 32-bit process and can launch 32-bit PowerShell, where
+    # ProgramFiles points to Program Files (x86) even for a per-machine x64
+    # installation. ProgramW6432 always names the native Program Files root.
+    $NativeProgramFiles = if ([string]::IsNullOrWhiteSpace($env:ProgramW6432)) { $env:ProgramFiles } else { $env:ProgramW6432 }
+    $ExpectedRoot = [System.IO.Path]::GetFullPath((Join-Path $NativeProgramFiles 'EasyNetBalance'))
     if (-not [string]::Equals($InstallRoot.TrimEnd('\'), $ExpectedRoot.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to install outside the protected application directory: $InstallRoot"
+        throw "Refusing to install outside the protected application directory: $InstallRoot (expected $ExpectedRoot)"
     }
 
     $ServiceName = 'EasyNetBalance'
