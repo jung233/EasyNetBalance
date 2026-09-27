@@ -101,6 +101,10 @@ try {
     $moduleInventory = [System.Collections.Generic.List[string]]::new()
     $missingModuleLicenses = [System.Collections.Generic.List[string]]::new()
     $licensePattern = '^(LICENSE|LICENCE|COPYING|NOTICE)([._-].*)?$'
+    $fallbackLicenseUrls = @{
+        'github.com/RyuaNerin/testingutil' = 'https://raw.githubusercontent.com/RyuaNerin/testingutil/master/LICENSE'
+        'github.com/metacubex/chacha' = 'https://raw.githubusercontent.com/MetaCubeX/chacha/master/LICENSE'
+    }
     foreach ($row in $moduleRows) {
         if ([string]::IsNullOrWhiteSpace([string]$row)) { continue }
         $parts = ([string]$row).Split('|', 3)
@@ -113,10 +117,21 @@ try {
             throw "Go module source is unavailable for license collection: $modulePath $moduleVersion"
         }
         $moduleLicenses = @(Get-ChildItem -LiteralPath $moduleDirectory -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $licensePattern })
+        $licenseRoot = $moduleDirectory
         if ($moduleLicenses.Count -eq 0) {
             $licenseDirectories = @(Get-ChildItem -LiteralPath $moduleDirectory -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(licenses?|licensing)$' })
             foreach ($licenseDirectory in $licenseDirectories) {
                 $moduleLicenses += @(Get-ChildItem -LiteralPath $licenseDirectory.FullName -File -Recurse -Depth 3 -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $licensePattern })
+            }
+        }
+        if ($moduleLicenses.Count -eq 0 -and $fallbackLicenseUrls.ContainsKey($modulePath)) {
+            $fallbackDirectory = Join-Path $SourceRoot 'vendor\\licenses\\_upstream-fallback'
+            New-Item -ItemType Directory -Force -Path $fallbackDirectory | Out-Null
+            $fallbackFile = Join-Path $fallbackDirectory (($modulePath -replace '[^A-Za-z0-9._-]', '_') + '-LICENSE.txt')
+            Invoke-WebRequest -Uri $fallbackLicenseUrls[$modulePath] -OutFile $fallbackFile -UseBasicParsing
+            if (Test-Path -LiteralPath $fallbackFile -PathType Leaf) {
+                $moduleLicenses = @(Get-Item -LiteralPath $fallbackFile)
+                $licenseRoot = $fallbackDirectory
             }
         }
         if ($moduleLicenses.Count -eq 0) {
@@ -129,7 +144,7 @@ try {
         $vendorNoticeDirectory = Join-Path (Join-Path $SourceRoot 'vendor\licenses') $safeModule
         New-Item -ItemType Directory -Force -Path $vendorNoticeDirectory | Out-Null
         foreach ($moduleLicense in $moduleLicenses) {
-            $relativeLicensePath = $moduleLicense.FullName.Substring($moduleDirectory.Length).TrimStart([char[]]@([char]'\', [char]'/'))
+            $relativeLicensePath = $moduleLicense.FullName.Substring($licenseRoot.Length).TrimStart([char[]]@([char]'\', [char]'/'))
             $safeLicensePath = $relativeLicensePath -replace '[\\/]', '_'
             $destinationName = $safeModule + '-' + $safeLicensePath
             Copy-Item -LiteralPath $moduleLicense.FullName -Destination (Join-Path $mihomoDependencyNotices $destinationName) -Force
