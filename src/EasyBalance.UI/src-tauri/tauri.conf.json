@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EasyNetBalance",
+  "version": "0.2.0",
+  "identifier": "com.easynetbalance.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "EasyNetBalance",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 1000,
+        "minHeight": 680
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "Utility",
+    "shortDescription": "Network routing control",
+    "resources": [
+      "resources/core/mihomo.exe",
+      "resources/install-service.ps1",
+      "resources/uninstall-service.ps1",
+      "resources/hooks/installer.nsh",
+      "resources/notices/**/*"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "resources/hooks/installer.nsh"
+      }
+    }
+  }
+}

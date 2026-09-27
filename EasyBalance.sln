@@ -6,8 +6,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyBalance.Shared", "src\E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyBalance.Service", "src\EasyBalance.Service\EasyBalance.Service.csproj", "{54B86E3A-8759-4CA5-B91A-25F772A82703}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyBalance.UI", "src\EasyBalance.UI\EasyBalance.UI.csproj", "{12352CBB-AC6D-4B04-83CA-87D34B00B119}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyBalance.Tests", "tests\EasyBalance.Tests\EasyBalance.Tests.csproj", "{5CCDD263-E0F0-463F-9F68-6603853E8649}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasyBalance.IntegrationTests", "tests\EasyBalance.IntegrationTests\EasyBalance.IntegrationTests.csproj", "{DB03C2E2-A723-45A2-A254-5ED9D68936AD}"
@@ -26,10 +24,6 @@ Global
 		{54B86E3A-8759-4CA5-B91A-25F772A82703}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{54B86E3A-8759-4CA5-B91A-25F772A82703}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{54B86E3A-8759-4CA5-B91A-25F772A82703}.Release|Any CPU.Build.0 = Release|Any CPU
-		{12352CBB-AC6D-4B04-83CA-87D34B00B119}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{12352CBB-AC6D-4B04-83CA-87D34B00B119}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{12352CBB-AC6D-4B04-83CA-87D34B00B119}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{12352CBB-AC6D-4B04-83CA-87D34B00B119}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5CCDD263-E0F0-463F-9F68-6603853E8649}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5CCDD263-E0F0-463F-9F68-6603853E8649}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5CCDD263-E0F0-463F-9F68-6603853E8649}.Release|Any CPU.ActiveCfg = Release|Any CPU

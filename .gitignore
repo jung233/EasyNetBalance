@@ -4,3 +4,11 @@
 core/sing-box.exe
 sing-box/
 *.user
+**/node_modules/
+**/dist/
+**/target/
+core/mihomo.exe
+mihomo-reference/
+/third_party/mihomo/
+/.ci/mihomo/
+/release-artifacts/
