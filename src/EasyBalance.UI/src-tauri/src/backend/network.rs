@@ -26,7 +26,7 @@ pub(super) fn get_adapters(settings: &Value) -> Result<Value, String> {
             for address in adapter.ip_addresses() {
                 match address { IpAddr::V4(v) => ipv4.push(v.to_string()), IpAddr::V6(v) => ipv6.push(v.to_string()) }
             }
-            let mut ipv4_gateways = Vec::new(); let mut ipv6_gateways = Vec::new();
+            let ipv4_gateways: Vec<String> = Vec::new(); let ipv6_gateways: Vec<String> = Vec::new();
             let dns = adapter.dns_servers().iter().map(ToString::to_string).collect::<Vec<_>>();
             rows.push(json!({
                 "id": id, "name": name, "description": description,
