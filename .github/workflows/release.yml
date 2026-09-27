@@ -66,6 +66,8 @@ jobs:
       - name: Validate generated Rust lockfile
         shell: pwsh
         run: |
+          & cargo generate-lockfile --manifest-path '.\src\EasyBalance.UI\src-tauri\Cargo.toml'
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo could not generate the Rust lockfile.' }
           if (-not (Test-Path -LiteralPath '.\src\EasyBalance.UI\src-tauri\Cargo.lock' -PathType Leaf)) { throw 'Cargo.lock was not generated.' }
           & cargo check --locked --manifest-path '.\src\EasyBalance.UI\src-tauri\Cargo.toml'
           if ($LASTEXITCODE -ne 0) { throw 'Rust application failed cargo check --locked.' }
