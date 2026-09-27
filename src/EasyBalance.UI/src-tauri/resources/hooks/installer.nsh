@@ -2,13 +2,13 @@
 
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Stopping the existing EasyBalance service before replacing application files..."
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\stop-service.ps1" -ServiceName EasyBalance'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$s=Get-Service -Name EasyBalance -ErrorAction SilentlyContinue; if ($$s -and $$s.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) { & sc.exe stop EasyBalance | Out-Null; if ($$LASTEXITCODE -ne 0 -and $$LASTEXITCODE -ne 1062 -and $$LASTEXITCODE -ne 1060) { exit 1 }; $$d=[DateTime]::UtcNow.AddSeconds(90); do { Start-Sleep -Milliseconds 500; $$s=Get-Service -Name EasyBalance -ErrorAction SilentlyContinue; if (-not $$s -or $$s.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { exit 0 } } while ([DateTime]::UtcNow -lt $$d); exit 1 }"'
   Pop $0
   ${If} $0 != "0"
     MessageBox MB_ICONSTOP|MB_OK "EasyNetBalance could not stop the legacy EasyBalance service (exit code: $0). Close EasyNetBalance and retry the installer."
     Abort
   ${EndIf}
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\stop-service.ps1" -ServiceName EasyNetBalance'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$s=Get-Service -Name EasyNetBalance -ErrorAction SilentlyContinue; if ($$s -and $$s.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) { & sc.exe stop EasyNetBalance | Out-Null; if ($$LASTEXITCODE -ne 0 -and $$LASTEXITCODE -ne 1062 -and $$LASTEXITCODE -ne 1060) { exit 1 }; $$d=[DateTime]::UtcNow.AddSeconds(90); do { Start-Sleep -Milliseconds 500; $$s=Get-Service -Name EasyNetBalance -ErrorAction SilentlyContinue; if (-not $$s -or $$s.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { exit 0 } } while ([DateTime]::UtcNow -lt $$d); exit 1 }"'
   Pop $0
   ${If} $0 != "0"
     MessageBox MB_ICONSTOP|MB_OK "EasyNetBalance could not stop its background service (exit code: $0). Close EasyNetBalance and retry the installer."
