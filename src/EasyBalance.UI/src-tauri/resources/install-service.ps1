@@ -79,6 +79,12 @@ try {
             if (-not $PreviousFile.StartsWith($InstallRoot.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
                 throw "The previous service payload manifest points outside the installation root: $RelativePath"
             }
+            # Earlier releases locked this unused copy inside a separate core
+            # directory. Its ACL can deny deletion during an upgrade. The new
+            # service runs the bundled resources\core\mihomo.exe instead.
+            if ([string]::Equals($RelativePath.Replace('/', '\'), 'core\mihomo.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
             if (Test-Path -LiteralPath $PreviousFile -PathType Leaf) {
                 Remove-Item -LiteralPath $PreviousFile -Force
             }
@@ -107,6 +113,6 @@ try {
     $RunningService = Get-Service -Name $ServiceName
     $RunningService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
 } catch {
-    [Console]::Error.WriteLine("EasyNetBalance service installation failed: {0}", $_.Exception.Message)
+    [Console]::Error.WriteLine("EasyNetBalance service installation failed: {0} ({1})", $_.Exception.Message, $_.InvocationInfo.PositionMessage.Trim())
     exit 1
 }
