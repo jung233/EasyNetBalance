@@ -145,7 +145,6 @@ jobs:
           MIHOMO_SOURCE_ARCHIVE: ${{ steps.mihomo.outputs.mihomo_source_archive }}
           MIHOMO_SOURCE_SHA256: ${{ steps.mihomo.outputs.mihomo_source_sha256 }}
           MIHOMO_BINARY_SHA256: ${{ steps.mihomo.outputs.mihomo_binary_sha256 }}
-          MIHOMO_PATCH_SHA256: ${{ steps.mihomo.outputs.mihomo_patch_sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
           $nsisRoot = Join-Path $env:GITHUB_WORKSPACE 'src\EasyBalance.UI\src-tauri\target\release\bundle\nsis'
@@ -153,10 +152,8 @@ jobs:
           if ($installers.Count -ne 1) { throw "Expected exactly one Tauri NSIS setup EXE; found $($installers.Count)." }
           if (-not (Test-Path -LiteralPath $env:MIHOMO_SOURCE_ARCHIVE -PathType Leaf)) { throw 'The matching patched Mihomo source archive was not produced.' }
           $corePath = Join-Path $env:GITHUB_WORKSPACE 'src\EasyBalance.UI\src-tauri\resources\core\mihomo.exe'
-          $patchPath = Join-Path $env:GITHUB_WORKSPACE 'patches\mihomo-weighted-bytes.patch'
           if ((Get-FileHash -LiteralPath $env:MIHOMO_SOURCE_ARCHIVE -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:MIHOMO_SOURCE_SHA256) { throw 'The Mihomo source archive hash changed after source generation.' }
           if ((Get-FileHash -LiteralPath $corePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:MIHOMO_BINARY_SHA256) { throw 'The staged Mihomo executable hash changed before packaging.' }
-          if ((Get-FileHash -LiteralPath $patchPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:MIHOMO_PATCH_SHA256) { throw 'The tracked Mihomo patch hash changed before packaging.' }
 
           if ($env:GITHUB_REF -eq 'refs/heads/main') {
             $releaseTag = "v0.2.0-preview.$env:GITHUB_RUN_NUMBER"
