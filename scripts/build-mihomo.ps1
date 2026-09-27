@@ -231,7 +231,7 @@ Mihomo license: GPL-3.0; upstream LICENSE and complete GPL-3.0 text are installe
 EasyNetBalance modification: weighted-bytes source files committed in third_party/mihomo.
 Build environment: $goVersion; GOOS=windows; GOARCH=amd64; CGO_ENABLED=0.
 Build command: $buildCommand
-Bundled binary: core/mihomo.exe
+Bundled binary: resources/core/mihomo.exe
 Bundled binary SHA-256: $binaryHash
 Corresponding source: attached mihomo-$ExpectedTag-source.tar.gz, containing the embedded source and vendor tree.
 Corresponding source archive SHA-256: $sourceHash

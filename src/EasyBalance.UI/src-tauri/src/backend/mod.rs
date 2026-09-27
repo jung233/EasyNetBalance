@@ -194,9 +194,28 @@ impl Runtime {
                 let current = self.adapter_health.get(&key).cloned().unwrap_or_default();
                 let interval = if current.state == "Down" { setting_seconds(&self.settings, "downProbeInterval", 8) } else { setting_seconds(&self.settings, "healthyProbeInterval", 20) };
                 if current.last_probe.is_some_and(|last| (now - last).num_seconds() < interval as i64) { continue; }
-                let latency = network::probe_adapter(adapter, family, Duration::from_secs(setting_seconds(&self.settings, "probeTimeout", 3)));
-                self.probe_count += 1;
-                if latency.is_some() { self.successful_probes += 1; } else { self.failed_probes += 1; }
+                let latency = match network::probe_adapter(adapter, family, Duration::from_secs(setting_seconds(&self.settings, "probeTimeout", 3)), self.settings.get("probeEndpoints")) {
+                    network::ProbeResult::Healthy(ms) => {
+                        self.probe_count += 1;
+                        self.successful_probes += 1;
+                        Some(ms)
+                    }
+                    network::ProbeResult::Down => {
+                        self.probe_count += 1;
+                        self.failed_probes += 1;
+                        None
+                    }
+                    network::ProbeResult::Unavailable => {
+                        let record = self.adapter_health.entry(key).or_default();
+                        record.last_probe = Some(now);
+                        record.latency_ms = None;
+                        record.failures = 0;
+                        record.successes = 0;
+                        record.state = "Unavailable".to_owned();
+                        record.recovered_since = None;
+                        continue;
+                    }
+                };
                 let record = self.adapter_health.entry(key).or_default();
                 record.last_probe = Some(now);
                 record.latency_ms = latency;
@@ -482,10 +501,19 @@ impl Runtime {
         let adapters = network::get_adapters(&self.settings)?;
         let adapter = adapters.as_array().and_then(|a| a.iter().find(|v| get_str(v, "id").as_deref() == Ok(id.as_str()))).ok_or("Interface is no longer available.")?;
         if !get_bool(adapter, "isUserAllowed", false) { return Err("Allow this interface before testing it.".into()); }
-        let latency = network::probe_adapter(adapter, &family, Duration::from_secs(3));
-        self.probe_count += 1;
-        if latency.is_some() { self.successful_probes += 1 } else { self.failed_probes += 1 }
-        let health = if latency.is_some() { "Healthy" } else { "Down" };
+        let (health, latency) = match network::probe_adapter(adapter, &family, Duration::from_secs(3), self.settings.get("probeEndpoints")) {
+            network::ProbeResult::Healthy(ms) => {
+                self.probe_count += 1;
+                self.successful_probes += 1;
+                ("Healthy", Some(ms))
+            }
+            network::ProbeResult::Down => {
+                self.probe_count += 1;
+                self.failed_probes += 1;
+                ("Down", None)
+            }
+            network::ProbeResult::Unavailable => ("Unavailable", None),
+        };
         let record = self.adapter_health.entry((id.clone(), family.clone())).or_default();
         record.state = health.into(); record.latency_ms = latency; record.last_probe = Some(Utc::now());
         Ok(json!({"interfaceId": id, "family": family, "health": health, "latencyMs": latency}))

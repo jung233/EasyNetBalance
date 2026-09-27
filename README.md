@@ -17,15 +17,15 @@ EasyNetBalance does not combine two links into one connection, and it does not m
 
 ### Use a release package
 
-Download the Windows x64 ZIP from [GitHub Releases](https://github.com/jung233/EasyNetBalance/releases), extract it, and run:
+Download and run the Windows x64 setup EXE from [GitHub Releases](https://github.com/jung233/EasyNetBalance/releases):
 
 ```text
-EasyNetBalance.exe
+EasyNetBalance-<version>-win-x64-setup.exe
 ```
 
-This is the only user-facing entry point. On first launch it requests administrator privileges, installs the bundled Service and mihomo into protected directories, registers and starts the `EasyBalance` Windows Service, and opens the management UI. Later launches open the UI from the same EXE. Closing the UI does not stop routing.
+The installer requests administrator privileges, installs EasyNetBalance under `%ProgramFiles%\EasyNetBalance`, and registers `EasyNetBalance.exe --service` as the automatic-start `EasyNetBalance` Windows Service. After installation, launch the installed EasyNetBalance app to open the management UI. The UI and service use the same executable; closing the UI does not stop routing.
 
-The release package already contains the official mihomo Windows binary; users do not need to download a separate core. Each package includes `THIRD_PARTY_NOTICES.md`, `SING-BOX-SOURCE.txt`, the upstream license, and the corresponding source archive information. See [third-party notices](THIRD_PARTY_NOTICES.md).
+The installer includes the patched Mihomo Windows core and license/provenance notices; users do not need to download a separate core. The release also publishes the matching Mihomo source archive, `THIRD_PARTY_NOTICES.md`, and SHA-256 checksums. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ### First configuration
 
@@ -53,8 +53,8 @@ Telemetry combines Service sampling with data from the mihomo control API. Very 
 
 ```mermaid
 flowchart LR
-    A[EasyNetBalance.exe] -->|install and start| B[Windows Service]
-    C[WPF UI] -->|Named Pipe: EasyBalance.Control.v1| B
+    A[EasyNetBalance.exe] -->|installed as| B[EasyNetBalance Windows Service]
+    C[Tauri UI] -->|Named Pipe: EasyBalance.Control.v1| B
     B -->|generate config and manage process| D[mihomo]
     D --> E[TUN inbound]
     E --> F[process and policy routing]
@@ -67,10 +67,8 @@ flowchart LR
 
 | Component | Responsibility |
 | --- | --- |
-| `EasyNetBalance.exe` (UI) | Single-file entry point, first-run installation/update, and WPF management UI. It does not start mihomo directly. |
-| `EasyBalance.Service` | Windows Service that persists settings, probes interfaces, generates configuration, manages the core, performs failover, and serves telemetry. |
-| `mihomo` | TUN, DNS/routing rules, and actual network forwarding. |
-| `EasyBalance.Shared` | Shared settings, policy, rule, and IPC DTO models. |
+| `EasyNetBalance.exe` | Tauri desktop UI by default; the same executable runs the Windows Service with `--service`. The service persists settings, probes interfaces, generates configuration, manages Mihomo, performs failover, and serves telemetry. |
+| `mihomo.exe` | Bundled at `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`; handles TUN, DNS/routing rules, and network forwarding. |
 | Named Pipe | Local UI-to-Service control channel; requests and responses are one-line JSON messages. |
 
 For every policy and address family, the Service generates a selector and writes `process_path` / `process_name` rules into the mihomo configuration. Interfaces are stored by their persistent Windows GUID; their current adapter name is resolved only while generating the configuration, so a renamed adapter keeps its policy identity.
@@ -81,38 +79,17 @@ Dual-WAN mode uses a loopback-only SOCKS5 allocation layer inside the Service. I
 
 | Location | Contents |
 | --- | --- |
-| `%ProgramData%\\EasyBalance\\settings.json` | Settings, policies, and application rules. |
-| `%ProgramData%\\EasyBalance\\generated\\mihomo.json` | Current generated configuration; secrets and proxy passwords are redacted in diagnostics. |
-| `%ProgramData%\\EasyBalance\\logs\\` | Service logs. |
-| `%LocalAppData%\\EasyBalance\\logs\\ui-startup.log` | UI installation, update, and startup errors. |
-| `%ProgramFiles%\\EasyBalance\\` | Protected Service and mihomo installation directory. |
+| `%ProgramData%\EasyNetBalance\settings.json` | Settings, policies, and application rules. |
+| `%ProgramData%\EasyNetBalance\mihomo\` | Mihomo working directory and generated `config.yaml`. |
+| `%ProgramFiles%\EasyNetBalance\` | Protected application and service installation; Mihomo is bundled under `resources\core\mihomo.exe`. |
 
-To remove the service, use an elevated PowerShell:
+Uninstall EasyNetBalance from **Settings → Apps → Installed apps**. The uninstaller removes the service and application files while preserving `%ProgramData%\EasyNetBalance`; delete that data directory separately only if you also want to remove saved settings.
 
-```powershell
-sc.exe stop EasyBalance
-sc.exe delete EasyBalance
-```
-
-If mihomo reports that its installation directory can be replaced or written by ordinary users, keep the default SYSTEM/Administrators ownership and ACLs. Do not place the core under Downloads, the desktop, or another user-writable directory.
+The service and data directories are protected from ordinary-user writes. Do not move the core under Downloads, the desktop, or another user-writable directory.
 
 ## Build from source
 
-Development requires Windows 10/11 and the .NET 8 SDK. The release workflow builds on a Windows runner, bundles the official mihomo core into the single EXE, and creates a preview Release when `main` is updated.
-
-```powershell
-dotnet restore .\\EasyBalance.sln
-dotnet build .\\EasyBalance.sln -c Release
-```
-
-For source debugging, start the Service and UI separately. The Service supports `--console`:
-
-```powershell
-.\\src\\EasyBalance.Service\\bin\\Release\\net8.0-windows\\EasyBalance.Service.exe --console
-.\\src\\EasyBalance.UI\\bin\\Release\\net8.0-windows\\EasyBalance.UI.exe
-```
-
-A source checkout needs a compatible `mihomo.exe`. Put it at `core\\mihomo.exe` beside the Service executable, or configure an absolute path in a protected administrator-owned directory. The binary must support the TUN, routing, and Clash API features used by the project; the Service checks `mihomo version` before startup.
+Development and release builds use Windows 10/11, Node.js 22, the stable Rust toolchain, and Go 1.26. The frontend and Tauri/Rust application are under `src/EasyBalance.UI`; the pinned Mihomo source is under `third_party/mihomo`. See [.github/workflows/release.yml](.github/workflows/release.yml) for the full build, license collection, and NSIS packaging sequence. The workflow builds Mihomo into `src/EasyBalance.UI/src-tauri/resources/core/mihomo.exe` before creating the installer.
 
 ## UI and Service contract
 
@@ -121,14 +98,14 @@ When rebuilding or integrating a UI, follow [UI_SERVICE_CONTRACT.md](docs/UI_SER
 - Named Pipe name, request/response envelopes, and error handling;
 - status, interface, rule, log, diagnostic, and connection-telemetry methods;
 - the `SetTrafficRatio` slider contract;
-- single-EXE installation/update behavior and sensitive-data handling.
+- shared UI/service executable, installation/update behavior, and sensitive-data handling.
 
 The UI should poll connection telemetry about every two seconds and stop polling when the monitor page is left. After a write failure, show the Service error and reload status/logs so the UI does not display stale state.
 
 ## Troubleshooting
 
-1. **Service unavailable** — launch the entry point as administrator and inspect the UI startup log and the Service logs.
-2. **mihomo core faulted** — check the core path, installation ACLs, TUN driver, required capabilities, and the latest Service log.
+1. **Service unavailable** — check that the `EasyNetBalance` service is running in Windows Services, then refresh the UI.
+2. **mihomo core faulted** — check `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`, the TUN driver, required capabilities, and the latest entries on the Logs page.
 3. **Invalid IP address** — check policy gateways, DNS servers, probe endpoints, and saved interface addresses separately for IPv4 and IPv6.
 4. **No traffic or a routing loop** — verify that each direct outbound binds the current physical adapter. Temporarily disable `strict_route` while diagnosing VPN, Hyper-V, WSL, or Docker conflicts.
 5. **Only one uplink is used** — ensure both interfaces are allowed and healthy for the required address family, and that the policy selects two different interfaces. The ratio affects new connections only.
@@ -137,4 +114,4 @@ EasyNetBalance does not provide seamless migration of existing connections, sing
 
 ## License
 
-EasyNetBalance is a separate control application. Release packages may include an unmodified mihomo Windows binary, which is distributed under GPL-3.0-or-later. If you redistribute a package containing mihomo, preserve its copyright and license notices and provide the corresponding source under the GPL terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and source details.
+EasyNetBalance is a separate control application. Release packages include a Mihomo core with the project's weighted-bytes changes; Mihomo is distributed under GPL-3.0-or-later. If you redistribute a package containing Mihomo, preserve its copyright and license notices and provide the corresponding source under the GPL terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the matching source archive published with each release.

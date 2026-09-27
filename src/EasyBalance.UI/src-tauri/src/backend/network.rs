@@ -1,7 +1,7 @@
 use crate::backend::models::{get_bool, get_str};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 pub(super) fn get_adapters(settings: &Value) -> Result<Value, String> {
@@ -52,31 +52,90 @@ fn override_for(overrides: Option<&Value>, id: &str) -> Option<bool> {
     overrides?.as_object()?.iter().find(|(key, _)| key.eq_ignore_ascii_case(id)).and_then(|(_, value)| value.as_bool())
 }
 
-pub(super) fn probe_adapter(adapter: &Value, family: &str, timeout: Duration) -> Option<f64> {
-    let addresses_key = if family.eq_ignore_ascii_case("IPv6") { "ipv6Addresses" } else { "ipv4Addresses" };
-    let local = adapter.get(addresses_key)?.as_array()?.iter().filter_map(Value::as_str).filter_map(|s| s.parse::<IpAddr>().ok()).next()?;
-    let endpoint = probe_endpoint(family)?;
-    let addr = (endpoint, 443);
+pub(super) enum ProbeResult {
+    Healthy(f64),
+    Down,
+    Unavailable,
+}
+
+pub(super) fn probe_adapter(adapter: &Value, family: &str, timeout: Duration, endpoints: Option<&Value>) -> ProbeResult {
+    let (addresses_key, family_key, ipv6) = if family.eq_ignore_ascii_case("IPv6") {
+        ("ipv6Addresses", "requireIPv6", true)
+    } else if family.eq_ignore_ascii_case("IPv4") {
+        ("ipv4Addresses", "requireIPv4", false)
+    } else {
+        return ProbeResult::Unavailable;
+    };
+    let Some(addresses) = adapter.get(addresses_key).and_then(Value::as_array) else { return ProbeResult::Unavailable; };
+    let locals = addresses.iter()
+        .filter_map(Value::as_str)
+        .filter_map(|s| s.parse::<IpAddr>().ok())
+        .filter(|address| is_probe_source(*address))
+        .collect::<Vec<_>>();
+    if locals.is_empty() { return ProbeResult::Unavailable; }
+    let remotes = configured_probe_targets(endpoints, family_key, ipv6);
+    if remotes.is_empty() { return ProbeResult::Unavailable; }
     let started = Instant::now();
-    #[cfg(windows)]
-    let result = connect_bound(local, addr, timeout);
-    #[cfg(not(windows))]
-    let result = TcpStream::connect_timeout(&SocketAddr::new(addr.0, addr.1), timeout).map(|_| ());
-    result.ok().map(|_| started.elapsed().as_secs_f64() * 1000.0)
+    let attempt_count = (locals.len() * remotes.len()).max(1);
+    let mut attempted = 0usize;
+    for local in &locals {
+        for remote in &remotes {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() { return ProbeResult::Down; }
+            let attempts_left = (attempt_count - attempted) as u32;
+            let attempt_timeout = remaining / attempts_left.max(1);
+            attempted += 1;
+            if connect_bound(*local, *remote, attempt_timeout).is_ok() {
+                return ProbeResult::Healthy(started.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    ProbeResult::Down
 }
 
-fn probe_endpoint(family: &str) -> Option<IpAddr> {
-    if family.eq_ignore_ascii_case("IPv6") { "2606:4700:4700::1111".parse().ok() }
-    else { "1.1.1.1".parse().ok() }
+fn configured_probe_targets(endpoints: Option<&Value>, family_key: &str, ipv6: bool) -> Vec<SocketAddr> {
+    let mut targets = Vec::new();
+    let Some(endpoints) = endpoints.and_then(Value::as_array) else { return targets; };
+    for endpoint in endpoints.iter().filter(|item| get_bool(item, "enabled", true) && get_bool(item, family_key, true)) {
+        let Ok(url) = get_str(endpoint, "url") else { continue; };
+        let Ok(url) = reqwest::Url::parse(&url) else { continue; };
+        if url.scheme() != "https" { continue; }
+        let Some(host) = url.host_str() else { continue; };
+        let Some(port) = url.port_or_known_default() else { continue; };
+        let Ok(addresses) = (host, port).to_socket_addrs() else { continue; };
+        if let Some(address) = addresses.find(|address| address.is_ipv6() == ipv6) {
+            if !targets.contains(&address) { targets.push(address); }
+        }
+    }
+    targets
 }
 
-#[cfg(windows)]
-fn connect_bound(local: IpAddr, remote: (IpAddr, u16), timeout: Duration) -> std::io::Result<()> {
-    if local.is_ipv4() != remote.0.is_ipv4() { return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Address family mismatch")); }
+fn is_probe_source(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            let octets = address.octets();
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_multicast()
+                && !(octets[0] == 169 && octets[1] == 254)
+        }
+        IpAddr::V6(address) => {
+            let segments = address.segments();
+            !address.is_unspecified()
+                && !address.is_loopback()
+                && !address.is_multicast()
+                // Link-local addresses cannot reach the public probe endpoint.
+                && (segments[0] & 0xffc0) != 0xfe80
+        }
+    }
+}
+
+fn connect_bound(local: IpAddr, remote: SocketAddr, timeout: Duration) -> std::io::Result<()> {
+    if local.is_ipv4() != remote.is_ipv4() { return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Address family mismatch")); }
     let domain = if local.is_ipv4() { socket2::Domain::IPV4 } else { socket2::Domain::IPV6 };
     let socket = socket2::Socket::new(domain, socket2::Type::STREAM, Some(socket2::Protocol::TCP))?;
     socket.bind(&SocketAddr::new(local, 0).into())?;
-    socket.connect_timeout(&SocketAddr::new(remote.0, remote.1).into(), timeout)?;
+    socket.connect_timeout(&remote.into(), timeout)?;
     Ok(())
 }
 

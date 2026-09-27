@@ -84,6 +84,6 @@
 
 ## Windows 安装与更新约定
 
-发布包是一个 Windows x64 NSIS 安装器 EXE，内含 Tauri UI、同一个 `EasyNetBalance.exe` 服务宿主、从固定 Mihomo 源码修补并编译的核心、匹配源码归档和许可证/来源材料。安装器请求管理员权限，把应用安装到 `%ProgramFiles%\EasyNetBalance`，将 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service，并把核心安装为 `%ProgramFiles%\EasyNetBalance\core\mihomo.exe`。核心目录和 `%ProgramData%\EasyNetBalance` 数据目录仅授予 SYSTEM 和 Administrators 写入权限。
+发布包是一个 Windows x64 NSIS 安装器 EXE，内含 Tauri UI、同一个 `EasyNetBalance.exe` 服务宿主、从固定 Mihomo 源码修补并编译的核心，以及许可证/来源材料；对应的 Mihomo 源码归档另作为 Release 资源发布。安装器请求管理员权限，把应用安装到 `%ProgramFiles%\EasyNetBalance`，将 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service。Mihomo 随应用保留在 `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`，不复制到独立的 `core` 目录。安装目录和 `%ProgramData%\EasyNetBalance` 数据目录仅授予 SYSTEM 和 Administrators 写入权限。
 
 升级前安装器先停止当前的 `EasyNetBalance` 服务；若检测到旧版 `EasyBalance` 服务，也会停止并移除旧 SCM 注册，再注册新版服务并启动。卸载时停止并移除 `EasyNetBalance` 服务，但保留 `%ProgramData%` 下的新旧数据目录。新设置、生成配置、日志和 Mihomo 状态保存在 `%ProgramData%\EasyNetBalance`；首次启动时仅当新 `settings.json` 不存在，服务才从旧版 `%ProgramData%\EasyBalance\settings.json` 复制设置文件，旧目录始终保留。普通 UI 通过 `EasyBalance.Control.v1` 管理服务，关闭窗口后服务继续运行。安装或升级失败必须在安装器中显示可操作错误。不要在 UI 进程直接启动 Mihomo，也不要把 API secret、代理密码或未遮盖配置写入普通日志。

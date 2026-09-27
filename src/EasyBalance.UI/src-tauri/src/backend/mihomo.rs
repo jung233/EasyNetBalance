@@ -35,8 +35,8 @@ pub(super) struct MihomoCore {
 impl MihomoCore {
     pub(super) fn new(data_dir: PathBuf, logs: Arc<Mutex<VecDeque<LogEntry>>>) -> Self {
         let working = data_dir.join("mihomo");
-        let binary = std::env::current_exe().ok().and_then(|path| path.parent().map(|p| p.join("core").join("mihomo.exe")))
-            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files\EasyNetBalance\core\mihomo.exe"));
+        let binary = std::env::current_exe().ok().and_then(|path| path.parent().map(|p| p.join("resources").join("core").join("mihomo.exe")))
+            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files\EasyNetBalance\resources\core\mihomo.exe"));
         Self { config_path: working.join("config.yaml"), data_dir: working, binary, child: None, controller: None, secret: None, version: None, last_exit_code: None, started_at: None, generated_yaml: String::new(), logs }
     }
 
@@ -74,7 +74,7 @@ impl MihomoCore {
         let mut command = Command::new(&self.binary);
         command.arg("-d").arg(&self.data_dir).arg("-f").arg(&self.config_path)
             .current_dir(&self.data_dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|e| format!("Could not start Mihomo: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("Could not start Mihomo at {} using working directory {}: {e}", self.binary.display(), self.data_dir.display()))?;
         self.attach_log_reader(child.stdout.take(), "Mihomo");
         self.attach_log_reader(child.stderr.take(), "Mihomo");
         self.child = Some(child);
@@ -194,7 +194,7 @@ impl MihomoCore {
 
     fn validate_binary_config(&self) -> Result<(), String> {
         let output = Command::new(&self.binary).arg("-t").arg("-d").arg(&self.data_dir).arg("-f").arg(&self.config_path)
-            .current_dir(&self.data_dir).output().map_err(|e| format!("Could not validate Mihomo configuration: {e}"))?;
+            .current_dir(&self.data_dir).output().map_err(|e| format!("Could not validate Mihomo configuration using {} and working directory {}: {e}", self.binary.display(), self.data_dir.display()))?;
         if output.status.success() { Ok(()) }
         else {
             let details = String::from_utf8_lossy(&output.stderr);

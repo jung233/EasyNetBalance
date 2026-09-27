@@ -20,8 +20,6 @@ try {
     $ServiceExecutableName = 'EasyNetBalance.exe'
     $CoreSource = Join-Path $InstallRoot 'resources\core\mihomo.exe'
     $ServiceExecutable = Join-Path $InstallRoot $ServiceExecutableName
-    $CoreDirectory = Join-Path $InstallRoot 'core'
-    $CoreDestination = Join-Path $CoreDirectory 'mihomo.exe'
     $ManifestPath = Join-Path $InstallRoot '.easynetbalance-service-files.txt'
     $DataDirectory = Join-Path $env:ProgramData 'EasyNetBalance'
 
@@ -31,7 +29,7 @@ try {
     if (-not (Test-Path -LiteralPath $CoreSource -PathType Leaf)) {
         throw "The mihomo core is missing from the bundle: $CoreSource"
     }
-    foreach ($ProtectedDirectory in @($CoreDirectory, $DataDirectory)) {
+    foreach ($ProtectedDirectory in @($DataDirectory)) {
         if (Test-Path -LiteralPath $ProtectedDirectory) {
             $ProtectedItem = Get-Item -LiteralPath $ProtectedDirectory -Force
             if (($ProtectedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -69,8 +67,6 @@ try {
         $ExistingService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
     }
 
-    New-Item -ItemType Directory -Force -Path $CoreDirectory | Out-Null
-
     # Remove only files recorded by a prior EasyNetBalance package. This keeps
     # upgrades tidy without deleting unrelated files from the installation root.
     if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
@@ -89,20 +85,13 @@ try {
         }
     }
 
-    Copy-Item -LiteralPath $CoreSource -Destination $CoreDestination -Force
-    $InstalledFiles = @('core\mihomo.exe')
-
     $BroadPrincipals = @('*S-1-1-0', '*S-1-5-11', '*S-1-5-32-545')
-    & "$env:SystemRoot\System32\icacls.exe" $CoreDirectory /inheritance:r /remove:g @BroadPrincipals /remove:d @BroadPrincipals /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not set protected SYSTEM/Administrators ACLs on $CoreDirectory (icacls exit code $LASTEXITCODE)."
-    }
     New-Item -ItemType Directory -Force -Path $DataDirectory | Out-Null
     & "$env:SystemRoot\System32\icacls.exe" $DataDirectory /inheritance:r /remove:g @BroadPrincipals /remove:d @BroadPrincipals /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
     if ($LASTEXITCODE -ne 0) {
         throw "Could not set protected SYSTEM/Administrators ACLs on $DataDirectory (icacls exit code $LASTEXITCODE)."
     }
-    [System.IO.File]::WriteAllLines($ManifestPath, $InstalledFiles, [System.Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) { Remove-Item -LiteralPath $ManifestPath -Force }
 
     $BinaryPath = '"' + $ServiceExecutable + '" --service'
     if ($null -eq $ExistingService) {
