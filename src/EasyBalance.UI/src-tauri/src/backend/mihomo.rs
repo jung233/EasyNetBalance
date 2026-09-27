@@ -15,6 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::models::{get_bool, get_str};
+use super::models::get_i64;
 use super::LogEntry;
 
 pub(super) struct MihomoCore {

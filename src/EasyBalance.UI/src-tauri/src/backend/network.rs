@@ -12,7 +12,7 @@ pub(super) fn get_adapters(settings: &Value) -> Result<Value, String> {
         let mut rows = Vec::new();
         let adapters = ipconfig::get_adapters().map_err(|e| format!("Could not enumerate network adapters: {e}"))?;
         for adapter in adapters {
-            let id = adapter.name().trim_matches(['{', '}']).to_owned();
+            let id = adapter.adapter_name().trim_matches(['{', '}']).to_owned();
             let name = adapter.friendly_name().to_owned();
             let description = adapter.description().to_owned();
             let kind = format!("{:?}", adapter.if_type());
@@ -27,9 +27,6 @@ pub(super) fn get_adapters(settings: &Value) -> Result<Value, String> {
                 match address { IpAddr::V4(v) => ipv4.push(v.to_string()), IpAddr::V6(v) => ipv6.push(v.to_string()) }
             }
             let mut ipv4_gateways = Vec::new(); let mut ipv6_gateways = Vec::new();
-            for address in adapter.gateway_addresses() {
-                match address { IpAddr::V4(v) => ipv4_gateways.push(v.to_string()), IpAddr::V6(v) => ipv6_gateways.push(v.to_string()) }
-            }
             let dns = adapter.dns_servers().iter().map(ToString::to_string).collect::<Vec<_>>();
             rows.push(json!({
                 "id": id, "name": name, "description": description,

@@ -205,13 +205,13 @@ impl Runtime {
                     record.successes += 1;
                     if record.successes >= recovery_threshold {
                         if record.state != "Healthy" { record.recovered_since = Some(now); }
-                        record.state = "Healthy";
-                    } else if record.state != "Healthy" { record.state = "Recovering"; }
+                        record.state = "Healthy".to_owned();
+                    } else if record.state != "Healthy" { record.state = "Recovering".to_owned(); }
                 } else {
                     record.successes = 0;
                     record.failures += 1;
-                    if record.failures >= failure_threshold { record.state = "Down"; record.recovered_since = None; }
-                    else if record.state != "Down" { record.state = "Suspect"; }
+                    if record.failures >= failure_threshold { record.state = "Down".to_owned(); record.recovered_since = None; }
+                    else if record.state != "Down" { record.state = "Suspect".to_owned(); }
                 }
             }
         }

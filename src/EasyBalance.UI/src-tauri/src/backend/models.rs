@@ -39,6 +39,7 @@ pub(super) fn default_settings() -> Value {
 }
 
 pub(super) fn merge_defaults(target: &mut Value, defaults: Value) {
+    if target.is_null() { *target = defaults; return; }
     match (target, defaults) {
         (Value::Object(target), Value::Object(defaults)) => {
             for (key, default_value) in defaults {
@@ -46,7 +47,6 @@ pub(super) fn merge_defaults(target: &mut Value, defaults: Value) {
                 else { target.insert(key, default_value); }
             }
         }
-        (Value::Null, defaults) => *target = defaults,
         _ => {}
     }
 }
