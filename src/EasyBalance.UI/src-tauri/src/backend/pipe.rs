@@ -72,11 +72,18 @@ fn service_main(_arguments: Vec<OsString>) {
         while !scheduler_stop.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_secs(1));
             if scheduler_stop.load(Ordering::SeqCst) { break; }
-            if let Ok(mut runtime) = scheduler_runtime.lock() { let _ = runtime.tick(); }
+            if let Ok(mut runtime) = scheduler_runtime.lock() { let _ = runtime.tick(&scheduler_stop); }
         }
     });
     let _ = serve_pipe(runtime, &stop, &stop_rx);
     stop.store(true, Ordering::SeqCst);
+    let _ = status.set_service_status(ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::StopPending,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code: ServiceExitCode::Win32(0), checkpoint: 1,
+        wait_hint: Duration::from_secs(15), process_id: None,
+    });
     let _ = scheduler.join();
     let _ = status.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,

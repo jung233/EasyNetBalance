@@ -180,13 +180,15 @@ impl Runtime {
         Ok(items)
     }
 
-    pub(super) fn tick(&mut self) -> Result<(), String> {
+    pub(super) fn tick(&mut self, stop: &std::sync::atomic::AtomicBool) -> Result<(), String> {
         if !get_bool(&self.settings, "enabled", false) || !self.core.is_running() { return Ok(()); }
         let now = Utc::now();
         let adapters = network::get_adapters(&self.settings)?;
         for adapter in adapters.as_array().into_iter().flatten().filter(|a| get_bool(a, "isUserAllowed", false)) {
+            if stop.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
             let id = get_str(adapter, "id").unwrap_or_default();
             for family in ["IPv4", "IPv6"] {
+                if stop.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
                 if family == "IPv6" && !get_bool(&self.settings, "ipv6Enabled", true) { continue; }
                 let key = (id.clone(), family.to_owned());
                 let current = self.adapter_health.get(&key).cloned().unwrap_or_default();
