@@ -2,13 +2,13 @@
 
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Stopping the existing EasyBalance service before replacing application files..."
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$s=Get-Service -Name EasyBalance -ErrorAction SilentlyContinue; if ($$s -and $$s.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) { Stop-Service -Name EasyBalance -Force -ErrorAction Stop; $$s.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45)) }"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\stop-service.ps1" -ServiceName EasyBalance'
   Pop $0
   ${If} $0 != "0"
     MessageBox MB_ICONSTOP|MB_OK "EasyNetBalance could not stop the legacy EasyBalance service (exit code: $0). Close EasyNetBalance and retry the installer."
     Abort
   ${EndIf}
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "$$s=Get-Service -Name EasyNetBalance -ErrorAction SilentlyContinue; if ($$s -and $$s.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) { Stop-Service -Name EasyNetBalance -Force -ErrorAction Stop; $$s.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(45)) }"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\resources\stop-service.ps1" -ServiceName EasyNetBalance'
   Pop $0
   ${If} $0 != "0"
     MessageBox MB_ICONSTOP|MB_OK "EasyNetBalance could not stop its background service (exit code: $0). Close EasyNetBalance and retry the installer."

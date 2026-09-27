@@ -32,6 +32,7 @@
       "resources/core/mihomo.exe",
       "resources/install-service.ps1",
       "resources/uninstall-service.ps1",
+      "resources/stop-service.ps1",
       "resources/hooks/installer.nsh",
       "resources/notices/**/*"
     ],
