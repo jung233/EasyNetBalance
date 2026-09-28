@@ -95,6 +95,13 @@ try {
 
     $BroadPrincipals = @('*S-1-1-0', '*S-1-5-11', '*S-1-5-32-545')
     New-Item -ItemType Directory -Force -Path $DataDirectory | Out-Null
+    # Older previews could leave explicit deny entries on settings.json. Reset
+    # inherited ACLs first so those entries cannot survive an upgrade, then
+    # apply the service-only ACL to the directory and every existing file.
+    & "$env:SystemRoot\System32\icacls.exe" $DataDirectory /reset /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not reset stale ACLs under $DataDirectory (icacls exit code $LASTEXITCODE)."
+    }
     & "$env:SystemRoot\System32\icacls.exe" $DataDirectory /inheritance:r /remove:g @BroadPrincipals /remove:d @BroadPrincipals /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
     if ($LASTEXITCODE -ne 0) {
         throw "Could not set protected SYSTEM/Administrators ACLs on $DataDirectory (icacls exit code $LASTEXITCODE)."
