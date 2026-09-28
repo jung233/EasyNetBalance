@@ -109,9 +109,21 @@ try {
     if ($null -eq $ExistingService) {
         New-Service -Name $ServiceName -DisplayName 'EasyNetBalance' -Description 'EasyNetBalance background routing service' -BinaryPathName $BinaryPath -StartupType Automatic | Out-Null
     } else {
-        & "$env:SystemRoot\System32\sc.exe" config $ServiceName binPath= $BinaryPath start= auto obj= LocalSystem
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not update the EasyNetBalance service configuration (sc.exe exit code $LASTEXITCODE)."
+        $ServiceConfig = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
+        if ($null -eq $ServiceConfig) { throw "Could not read the existing $ServiceName service configuration." }
+        if (-not [string]::Equals($ServiceConfig.PathName, $BinaryPath, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $ServiceConfig.StartMode -ne 'Auto' -or $ServiceConfig.StartName -ne 'LocalSystem') {
+            # CIM passes PathName as one string, preserving the quotes around a
+            # Program Files executable. PowerShell 5.1 can strip those quotes
+            # when forwarding an argument to sc.exe config.
+            $Update = Invoke-CimMethod -InputObject $ServiceConfig -MethodName Change -Arguments @{
+                PathName = $BinaryPath
+                StartMode = 'Automatic'
+                StartName = 'LocalSystem'
+            } -ErrorAction Stop
+            if ($Update.ReturnValue -ne 0) {
+                throw "Could not update the EasyNetBalance service configuration (Win32_Service.Change code $($Update.ReturnValue))."
+            }
         }
     }
 
