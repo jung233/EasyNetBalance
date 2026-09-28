@@ -92,8 +92,12 @@ impl Runtime {
             failed_probes: 0,
         };
         if get_bool(&runtime.settings, "enabled", false) {
-            let adapters = network::get_adapters(&runtime.settings)?;
-            runtime.start_core(&adapters)?;
+            let start_result = network::get_adapters(&runtime.settings)
+                .and_then(|adapters| runtime.start_core(&adapters));
+            if let Err(error) = start_result {
+                runtime.last_error = Some(error.clone());
+                runtime.log("Error", "Mihomo", &format!("Could not resume routing after service start: {error}"));
+            }
         }
         runtime.log("Information", "Service", "EasyNetBalance service initialized.");
         Ok(runtime)

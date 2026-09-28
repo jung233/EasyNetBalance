@@ -49,7 +49,13 @@ fn service_main(_arguments: Vec<OsString>) {
     if status.set_service_status(start_pending).is_err() { return; }
     let runtime = match Runtime::new() {
         Ok(runtime) => Arc::new(Mutex::new(runtime)),
-        Err(_) => {
+        Err(error) => {
+            // This path runs before Runtime's in-memory log exists. Preserve the
+            // actual failure for the elevated installer instead of reporting only
+            // a generic service-specific exit code.
+            let data_dir = super::data_directory();
+            let _ = std::fs::create_dir_all(&data_dir);
+            let _ = std::fs::write(data_dir.join("service-startup-error.log"), &error);
             let _ = status.set_service_status(ServiceStatus {
                 service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,
                 controls_accepted: ServiceControlAccept::empty(),

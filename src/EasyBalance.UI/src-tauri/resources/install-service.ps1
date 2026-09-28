@@ -127,10 +127,17 @@ try {
         }
     }
 
+    $StartupErrorPath = Join-Path $DataDirectory 'service-startup-error.log'
+    if (Test-Path -LiteralPath $StartupErrorPath -PathType Leaf) {
+        Remove-Item -LiteralPath $StartupErrorPath -Force
+    }
     Start-Service -Name $ServiceName -ErrorAction Stop
     $RunningService = Get-Service -Name $ServiceName
     $RunningService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
 } catch {
     [Console]::Error.WriteLine("EasyNetBalance service installation failed: {0} ({1})", $_.Exception.Message, $_.InvocationInfo.PositionMessage.Trim())
+    if ($StartupErrorPath -and (Test-Path -LiteralPath $StartupErrorPath -PathType Leaf)) {
+        [Console]::Error.WriteLine("Service startup error: {0}", [System.IO.File]::ReadAllText($StartupErrorPath).Trim())
+    }
     exit 1
 }
