@@ -51,11 +51,12 @@ fn service_main(_arguments: Vec<OsString>) {
         Ok(runtime) => Arc::new(Mutex::new(runtime)),
         Err(error) => {
             // This path runs before Runtime's in-memory log exists. Preserve the
-            // actual failure for the elevated installer instead of reporting only
-            // a generic service-specific exit code.
+            // actual failure in both the protected data directory and the Windows
+            // Application event log, which can be read without data-directory access.
             let data_dir = super::data_directory();
             let _ = std::fs::create_dir_all(&data_dir);
             let _ = std::fs::write(data_dir.join("service-startup-error.log"), &error);
+            report_startup_error(&error);
             let _ = status.set_service_status(ServiceStatus {
                 service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,
                 controls_accepted: ServiceControlAccept::empty(),
@@ -102,6 +103,28 @@ fn service_main(_arguments: Vec<OsString>) {
         exit_code: ServiceExitCode::Win32(0), checkpoint: 0,
         wait_hint: Duration::default(), process_id: None,
     });
+}
+
+#[cfg(windows)]
+fn report_startup_error(error: &str) {
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegisterEventSourceW(server: *const u16, source: *const u16) -> *mut c_void;
+        fn ReportEventW(handle: *mut c_void, event_type: u16, category: u16, event_id: u32,
+            user_sid: *const c_void, strings: u16, data_size: u32,
+            string_array: *const *const u16, raw_data: *const c_void) -> i32;
+        fn DeregisterEventSource(handle: *mut c_void) -> i32;
+    }
+    let source: Vec<u16> = "EasyNetBalance".encode_utf16().chain(Some(0)).collect();
+    let message: Vec<u16> = format!("Service initialization failed: {error}").encode_utf16().chain(Some(0)).collect();
+    let strings = [message.as_ptr()];
+    let handle = unsafe { RegisterEventSourceW(std::ptr::null(), source.as_ptr()) };
+    if !handle.is_null() {
+        unsafe {
+            ReportEventW(handle, 1, 0, 0x1000, std::ptr::null(), 1, 0, strings.as_ptr(), std::ptr::null());
+            DeregisterEventSource(handle);
+        }
+    }
 }
 
 #[cfg(windows)]
