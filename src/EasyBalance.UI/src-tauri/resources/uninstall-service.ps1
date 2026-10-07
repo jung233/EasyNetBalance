@@ -7,9 +7,9 @@ $ErrorActionPreference = 'Stop'
 
 try {
     $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
-    $ExpectedRoot = [System.IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'EasyNetBalance'))
+    $ExpectedRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
     if (-not [string]::Equals($InstallRoot.TrimEnd('\'), $ExpectedRoot.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to uninstall outside the protected application directory: $InstallRoot"
+        throw "The supplied uninstall root does not match this uninstaller's resources: $InstallRoot"
     }
 
     $ServiceName = 'EasyNetBalance'

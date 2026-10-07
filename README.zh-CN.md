@@ -23,7 +23,11 @@ EasyNetBalance 不会把两条线路合并成一条连接的带宽，也不会�
 EasyNetBalance-<version>-win-x64-setup.exe
 ```
 
-安装器会请求管理员权限，将 EasyNetBalance 安装到 `%ProgramFiles%\EasyNetBalance`，并把 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service。安装完成后启动已安装的 EasyNetBalance 应用即可打开管理界面。UI 和服务使用同一个可执行文件；关闭 UI 不会停止路由服务。
+安装器会请求管理员权限，将 EasyNetBalance 安装到 `<InstallRoot>`，并把 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service。安装完成后启动已安装的 EasyNetBalance 应用即可打开管理界面。UI 和服务使用同一个可执行文件；关闭 UI 不会停止路由服务。
+
+`<InstallRoot>` 表示安装器中选择的目录。核心相对于正在运行的可执行文件定位，服务数据通过 Windows CommonApplicationData 系统目录 API 定位，代码不假定盘符或绝对安装位置。
+
+`<InstallRoot>` 表示安装器中选择的目录。核心相对于正在运行的可执行文件定位，服务数据通过 Windows CommonApplicationData 系统目录 API 定位，代码不假定盘符或绝对安装位置。
 
 安装器包含带有项目加权字节改动的 Mihomo Windows 核心及许可证/来源声明，用户不需要另行下载核心。每个 Release 还会发布对应的 Mihomo 源码归档、`THIRD_PARTY_NOTICES.md` 和 SHA-256 校验和。详情见[第三方声明](THIRD_PARTY_NOTICES.md)。
 
@@ -70,7 +74,7 @@ flowchart LR
 | 组件 | 职责 |
 | --- | --- |
 | `EasyNetBalance.exe` | 默认启动 Tauri 桌面 UI；带 `--service` 参数时，同一可执行文件运行 Windows Service。服务保存设置、探测网卡、生成配置、管理 Mihomo、执行故障转移并提供遥测。 |
-| `mihomo.exe` | 随应用安装在 `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`，负责 TUN、DNS/路由规则和网络转发。 |
+| `mihomo.exe` | 随应用安装在 `<InstallRoot>\resources\core\mihomo.exe`，负责 TUN、DNS/路由规则和网络转发。 |
 | Named Pipe | UI 与 Service 的本机控制通道；请求和响应均为单行 JSON。 |
 
 Service 为每个策略和地址族生成独立 selector，并把 `process_path` / `process_name` 规则写入 mihomo 配置。网卡使用 Windows 的持久接口 GUID 保存；只有在生成配置时才把当前网卡名称解析为 `bind_interface`，因此网卡名称变化不会改变策略归属。
@@ -83,7 +87,7 @@ Service 为每个策略和地址族生成独立 selector，并把 `process_path`
 | --- | --- |
 | `%ProgramData%\EasyNetBalance\settings.json` | 设置、策略和应用规则。 |
 | `%ProgramData%\EasyNetBalance\mihomo\` | Mihomo 工作目录和生成的 `config.yaml`。 |
-| `%ProgramFiles%\EasyNetBalance\` | 受保护的应用和服务安装目录；Mihomo 位于 `resources\core\mihomo.exe`。 |
+| `<InstallRoot>\` | 受保护的应用和服务安装目录；Mihomo 位于 `resources\core\mihomo.exe`。 |
 
 请在 Windows **设置 → 应用 → 已安装的应用** 中卸载 EasyNetBalance。卸载程序会移除服务和应用文件，并保留 `%ProgramData%\EasyNetBalance`；只有希望同时删除保存的设置时，才需要另外删除该数据目录。
 
@@ -107,7 +111,7 @@ UI 每约 2 秒轮询一次连接遥测，离开监控页后应停止轮询。�
 ## 故障排查
 
 1. **Service unavailable**：在 Windows 服务中确认 `EasyNetBalance` 正在运行，然后刷新界面。
-2. **mihomo core faulted**：确认 `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe` 存在，并检查 TUN 驱动、核心能力和 Logs 页面中的最新记录。
+2. **mihomo core faulted**：确认 `<InstallRoot>\resources\core\mihomo.exe` 存在，并检查 TUN 驱动、核心能力和 Logs 页面中的最新记录。
 3. **invalid IP address**：检查每个策略的网关、DNS、探测地址和保存的网卡地址；IPv4 与 IPv6 配置分别检查。
 4. **路由不通或出现环路**：确认每个 direct outbound 的 `bind_interface` 对应当前物理网卡；VPN、Hyper-V、WSL、Docker 共存时可暂时关闭 `strict_route` 排查冲突。
 5. **只有一条线路工作**：确认两张网卡都允许使用且 IPv4/IPv6 健康，双 WAN 策略已选择两个不同的接口。比例只作用于新连接。

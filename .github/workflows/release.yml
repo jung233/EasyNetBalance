@@ -63,6 +63,10 @@ jobs:
         working-directory: src/EasyBalance.UI
         run: npm run build
 
+      - name: Verify service data ACL repair on disposable files
+        shell: powershell
+        run: .\scripts\check-service-data-acl.ps1
+
       - name: Validate generated Rust lockfile
         shell: pwsh
         run: |

@@ -53,9 +53,10 @@ fn service_main(_arguments: Vec<OsString>) {
             // This path runs before Runtime's in-memory log exists. Preserve the
             // actual failure in both the protected data directory and the Windows
             // Application event log, which can be read without data-directory access.
-            let data_dir = super::data_directory();
-            let _ = std::fs::create_dir_all(&data_dir);
-            let _ = std::fs::write(data_dir.join("service-startup-error.log"), &error);
+            if let Ok(data_dir) = super::data_directory() {
+                let _ = std::fs::create_dir_all(&data_dir);
+                let _ = std::fs::write(data_dir.join("service-startup-error.log"), &error);
+            }
             report_startup_error(&error);
             let _ = status.set_service_status(ServiceStatus {
                 service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,
@@ -135,13 +136,14 @@ fn cleanup_legacy_core() -> std::io::Result<()> {
     const REPARSE_POINT: u32 = 0x400;
     let executable = std::env::current_exe()?;
     let Some(install_root) = executable.parent() else { return Ok(()); };
-    let Some(program_files) = std::env::var_os("ProgramFiles") else { return Ok(()); };
-    let expected_root = std::path::PathBuf::from(program_files).join("EasyNetBalance");
-    if !install_root.canonicalize()?.to_string_lossy().eq_ignore_ascii_case(&expected_root.canonicalize()?.to_string_lossy()) {
-        return Ok(());
+    if fs::symlink_metadata(install_root)?.file_attributes() & REPARSE_POINT != 0 {
+        return Err(std::io::Error::other("application directory is a reparse point"));
     }
 
     let manifest = install_root.join(".easynetbalance-service-files.txt");
+    if manifest.exists() && fs::symlink_metadata(&manifest)?.file_attributes() & REPARSE_POINT != 0 {
+        return Err(std::io::Error::other("legacy manifest is a reparse point"));
+    }
     let entries = match fs::read_to_string(&manifest) {
         Ok(contents) => contents,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),

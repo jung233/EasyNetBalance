@@ -1,6 +1,7 @@
 mod mihomo;
 mod models;
 mod network;
+mod paths;
 mod pipe;
 
 use base64::Engine;
@@ -57,17 +58,26 @@ struct HealthRecord {
 
 impl Runtime {
     fn new() -> Result<Self, String> {
-        let data_dir = data_directory();
+        let data_dir = data_directory()?;
         fs::create_dir_all(&data_dir).map_err(|e| format!("Could not create the service data directory: {e}"))?;
         secure_data_directory(&data_dir)?;
         let settings_path = data_dir.join("settings.json");
-        let legacy_settings = std::env::var_os("PROGRAMDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
-            .join("EasyBalance").join("settings.json");
+        let legacy_settings = paths::common_application_data()?.join("EasyBalance").join("settings.json");
         if !settings_path.exists() && legacy_settings.is_file() {
             fs::copy(&legacy_settings, &settings_path).map_err(|e| format!("Could not migrate existing settings: {e}"))?;
         }
         let mut settings = if settings_path.exists() {
-            let bytes = fs::read(&settings_path).map_err(|e| format!("Could not read settings: {e}"))?;
+            let metadata = fs::symlink_metadata(&settings_path).map_err(|e| format!("Could not inspect settings at {}: {e}", settings_path.display()))?;
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(format!("The settings path must be a regular file: {}", settings_path.display()));
+            }
+            #[cfg(windows)] {
+                use std::os::windows::fs::MetadataExt;
+                let attributes = metadata.file_attributes();
+                if attributes & 0x400 != 0 { return Err(format!("The settings file cannot be a reparse point: {}", settings_path.display())); }
+                if attributes & 0x4000 != 0 { return Err(format!("The settings file is EFS-encrypted and LocalSystem cannot use the installing user's encryption key: {}", settings_path.display())); }
+            }
+            let bytes = fs::read(&settings_path).map_err(|e| format!("Could not read settings at {}: {e}", settings_path.display()))?;
             serde_json::from_slice(&bytes).map_err(|e| format!("Settings file is invalid: {e}"))?
         } else {
             default_settings()
@@ -77,7 +87,7 @@ impl Runtime {
         let mut runtime = Self {
             data_dir: data_dir.clone(),
             settings,
-            core: mihomo::MihomoCore::new(data_dir, logs.clone()),
+            core: mihomo::MihomoCore::new(data_dir, logs.clone())?,
             logs,
             adapter_health: HashMap::new(),
             traffic_seen: HashMap::new(),
@@ -656,8 +666,8 @@ pub(super) fn handle_request(runtime: &Arc<Mutex<Runtime>>, request: Value) -> V
     }
 }
 
-fn data_directory() -> PathBuf {
-    std::env::var_os("PROGRAMDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData")).join(PRODUCT_NAME)
+fn data_directory() -> Result<PathBuf, String> {
+    Ok(paths::common_application_data()?.join(PRODUCT_NAME))
 }
 
 fn secure_data_directory(_path: &Path) -> Result<(), String> {
@@ -671,19 +681,32 @@ fn secure_data_directory(_path: &Path) -> Result<(), String> {
         #[link(name = "advapi32")]
         extern "system" {
             fn ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl: *const u16, revision: u32, descriptor: *mut *mut c_void, size: *mut u32) -> i32;
-            fn SetFileSecurityW(path: *const u16, information: u32, descriptor: *mut c_void) -> i32;
+            fn GetSecurityDescriptorDacl(descriptor: *mut c_void, present: *mut i32, dacl: *mut *mut c_void, defaulted: *mut i32) -> i32;
+            fn SetNamedSecurityInfoW(path: *mut u16, object_type: u32, information: u32, owner: *mut c_void, group: *mut c_void, dacl: *mut c_void, sacl: *mut c_void) -> u32;
         }
         #[link(name = "kernel32")]
         extern "system" { fn LocalFree(memory: *mut c_void) -> *mut c_void; }
-        let path: Vec<u16> = _path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut path: Vec<u16> = _path.as_os_str().encode_wide().chain(Some(0)).collect();
         let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)".encode_utf16().chain(Some(0)).collect();
         let mut descriptor = std::ptr::null_mut();
         if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut descriptor, std::ptr::null_mut()) } == 0 {
             return Err(format!("Could not create service data ACL: {}", std::io::Error::last_os_error()));
         }
-        let okay = unsafe { SetFileSecurityW(path.as_ptr(), 0x0000_0004 | 0x8000_0000, descriptor) };
+        let mut present = 0;
+        let mut defaulted = 0;
+        let mut dacl = std::ptr::null_mut();
+        if unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) } == 0 || present == 0 || dacl.is_null() {
+            let error = std::io::Error::last_os_error();
+            unsafe { LocalFree(descriptor); }
+            return Err(format!("Could not read the service data ACL descriptor: {error}"));
+        }
+        // Unlike SetFileSecurityW, SetNamedSecurityInfoW propagates inheritable
+        // ACEs to existing unprotected children. Protected legacy files are
+        // explicitly repaired and verified by the installer before service start.
+        let result = unsafe { SetNamedSecurityInfoW(path.as_mut_ptr(), 1, 0x0000_0004 | 0x8000_0000,
+            std::ptr::null_mut(), std::ptr::null_mut(), dacl, std::ptr::null_mut()) };
         unsafe { LocalFree(descriptor); }
-        if okay == 0 { return Err(format!("Could not protect service data directory: {}", std::io::Error::last_os_error())); }
+        if result != 0 { return Err(format!("Could not protect service data directory {}: {}", _path.display(), std::io::Error::from_raw_os_error(result as i32))); }
     }
     Ok(())
 }

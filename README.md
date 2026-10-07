@@ -23,7 +23,11 @@ Download and run the Windows x64 setup EXE from [GitHub Releases](https://github
 EasyNetBalance-<version>-win-x64-setup.exe
 ```
 
-The installer requests administrator privileges, installs EasyNetBalance under `%ProgramFiles%\EasyNetBalance`, and registers `EasyNetBalance.exe --service` as the automatic-start `EasyNetBalance` Windows Service. After installation, launch the installed EasyNetBalance app to open the management UI. The UI and service use the same executable; closing the UI does not stop routing.
+The installer requests administrator privileges, installs EasyNetBalance under `<InstallRoot>`, and registers `EasyNetBalance.exe --service` as the automatic-start `EasyNetBalance` Windows Service. After installation, launch the installed EasyNetBalance app to open the management UI. The UI and service use the same executable; closing the UI does not stop routing.
+
+`<InstallRoot>` is the directory selected in the installer. The core is located relative to the running executable; service data is located through Windows CommonApplicationData. No drive letter or absolute installation path is assumed.
+
+`<InstallRoot>` is the directory selected in the installer. The core is located relative to the running executable; service data is located through Windows CommonApplicationData. No drive letter or absolute installation path is assumed.
 
 The installer includes the patched Mihomo Windows core and license/provenance notices; users do not need to download a separate core. The release also publishes the matching Mihomo source archive, `THIRD_PARTY_NOTICES.md`, and SHA-256 checksums. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -68,7 +72,7 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | `EasyNetBalance.exe` | Tauri desktop UI by default; the same executable runs the Windows Service with `--service`. The service persists settings, probes interfaces, generates configuration, manages Mihomo, performs failover, and serves telemetry. |
-| `mihomo.exe` | Bundled at `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`; handles TUN, DNS/routing rules, and network forwarding. |
+| `mihomo.exe` | Bundled at `<InstallRoot>\resources\core\mihomo.exe`; handles TUN, DNS/routing rules, and network forwarding. |
 | Named Pipe | Local UI-to-Service control channel; requests and responses are one-line JSON messages. |
 
 For every policy and address family, the Service generates a selector and writes `process_path` / `process_name` rules into the mihomo configuration. Interfaces are stored by their persistent Windows GUID; their current adapter name is resolved only while generating the configuration, so a renamed adapter keeps its policy identity.
@@ -81,7 +85,7 @@ Dual-WAN mode uses a loopback-only SOCKS5 allocation layer inside the Service. I
 | --- | --- |
 | `%ProgramData%\EasyNetBalance\settings.json` | Settings, policies, and application rules. |
 | `%ProgramData%\EasyNetBalance\mihomo\` | Mihomo working directory and generated `config.yaml`. |
-| `%ProgramFiles%\EasyNetBalance\` | Protected application and service installation; Mihomo is bundled under `resources\core\mihomo.exe`. |
+| `<InstallRoot>\` | Protected application and service installation; Mihomo is bundled under `resources\core\mihomo.exe`. |
 
 Uninstall EasyNetBalance from **Settings → Apps → Installed apps**. The uninstaller removes the service and application files while preserving `%ProgramData%\EasyNetBalance`; delete that data directory separately only if you also want to remove saved settings.
 
@@ -105,7 +109,7 @@ The UI should poll connection telemetry about every two seconds and stop polling
 ## Troubleshooting
 
 1. **Service unavailable** — check that the `EasyNetBalance` service is running in Windows Services, then refresh the UI.
-2. **mihomo core faulted** — check `%ProgramFiles%\EasyNetBalance\resources\core\mihomo.exe`, the TUN driver, required capabilities, and the latest entries on the Logs page.
+2. **mihomo core faulted** — check `<InstallRoot>\resources\core\mihomo.exe`, the TUN driver, required capabilities, and the latest entries on the Logs page.
 3. **Invalid IP address** — check policy gateways, DNS servers, probe endpoints, and saved interface addresses separately for IPv4 and IPv6.
 4. **No traffic or a routing loop** — verify that each direct outbound binds the current physical adapter. Temporarily disable `strict_route` while diagnosing VPN, Hyper-V, WSL, or Docker conflicts.
 5. **Only one uplink is used** — ensure both interfaces are allowed and healthy for the required address family, and that the policy selects two different interfaces. The ratio affects new connections only.

@@ -4,16 +4,64 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$StartupAttempt = Get-Date
+
+function Protect-ServiceData {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    # Construct a complete DACL instead of merging grants into a legacy ACL.
+    # Files receive applicable ACEs without directory inheritance flags.
+    $Pending = [System.Collections.Generic.Stack[string]]::new()
+    $Pending.Push($Path)
+    while ($Pending.Count -gt 0) {
+        $ItemPath = $Pending.Pop()
+        $Item = Get-Item -LiteralPath $ItemPath -Force -ErrorAction Stop
+        if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing to change service permissions through a reparse point: $ItemPath"
+        }
+        if (($Item.Attributes -band [System.IO.FileAttributes]::Encrypted) -ne 0) {
+            throw "Service data is EFS-encrypted and cannot be read by LocalSystem: $ItemPath. Decrypt it with its owning Windows account before installing."
+        }
+        if ($Item.PSIsContainer) {
+            $Acl = [System.Security.AccessControl.DirectorySecurity]::new()
+            $Sddl = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+        } else {
+            $Acl = [System.Security.AccessControl.FileSecurity]::new()
+            $Sddl = 'D:P(A;;FA;;;SY)(A;;FA;;;BA)'
+        }
+        $Acl.SetSecurityDescriptorSddlForm($Sddl, [System.Security.AccessControl.AccessControlSections]::Access)
+        Set-Acl -LiteralPath $ItemPath -AclObject $Acl -ErrorAction Stop
+        $Applied = Get-Acl -LiteralPath $ItemPath -ErrorAction Stop
+        $Rules = @($Applied.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+        foreach ($Sid in @('S-1-5-18', 'S-1-5-32-544')) {
+            if (-not ($Rules | Where-Object {
+                $_.IdentityReference.Value -eq $Sid -and
+                $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+                ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -eq [System.Security.AccessControl.FileSystemRights]::FullControl
+            })) { throw "The applied ACL does not grant FullControl to $Sid on $ItemPath." }
+        }
+        if ($Rules.Count -ne 2 -or -not $Applied.AreAccessRulesProtected) {
+            throw "The service ACL contains unexpected or inherited entries on $ItemPath."
+        }
+        if ($Item.PSIsContainer) {
+            # Apply each directory before traversing it. Never follow a junction.
+            foreach ($Child in Get-ChildItem -LiteralPath $ItemPath -Force -ErrorAction Stop) {
+                $Pending.Push($Child.FullName)
+            }
+        }
+    }
+}
 
 try {
+    $Identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $Principal = [System.Security.Principal.WindowsPrincipal]::new($Identity)
+    if (-not $Principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "The installer service hook must run with an elevated Administrator token (current identity: $($Identity.Name))."
+    }
     $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
-    # NSIS is a 32-bit process and can launch 32-bit PowerShell, where
-    # ProgramFiles points to Program Files (x86) even for a per-machine x64
-    # installation. ProgramW6432 always names the native Program Files root.
-    $NativeProgramFiles = if ([string]::IsNullOrWhiteSpace($env:ProgramW6432)) { $env:ProgramFiles } else { $env:ProgramW6432 }
-    $ExpectedRoot = [System.IO.Path]::GetFullPath((Join-Path $NativeProgramFiles 'EasyNetBalance'))
+    $ExpectedRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
     if (-not [string]::Equals($InstallRoot.TrimEnd('\'), $ExpectedRoot.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to install outside the protected application directory: $InstallRoot (expected $ExpectedRoot)"
+        throw "The supplied install root does not match this installer's resources: $InstallRoot (expected $ExpectedRoot)"
     }
 
     $ServiceName = 'EasyNetBalance'
@@ -21,7 +69,10 @@ try {
     $CoreSource = Join-Path $InstallRoot 'resources\core\mihomo.exe'
     $ServiceExecutable = Join-Path $InstallRoot $ServiceExecutableName
     $ManifestPath = Join-Path $InstallRoot '.easynetbalance-service-files.txt'
-    $DataDirectory = Join-Path $env:ProgramData 'EasyNetBalance'
+    $CommonData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonApplicationData)
+    if ([string]::IsNullOrWhiteSpace($CommonData)) { throw 'Windows could not resolve CommonApplicationData.' }
+    $DataDirectory = Join-Path $CommonData $ServiceName
+    [Console]::WriteLine("Service identity: LocalSystem; install root: {0}; data directory: {1}", $InstallRoot, $DataDirectory)
 
     if (-not (Test-Path -LiteralPath $ServiceExecutable -PathType Leaf)) {
         throw "The installed service executable is missing: $ServiceExecutable"
@@ -29,7 +80,7 @@ try {
     if (-not (Test-Path -LiteralPath $CoreSource -PathType Leaf)) {
         throw "The mihomo core is missing from the bundle: $CoreSource"
     }
-    foreach ($ProtectedDirectory in @($DataDirectory)) {
+    foreach ($ProtectedDirectory in @($InstallRoot, $DataDirectory)) {
         if (Test-Path -LiteralPath $ProtectedDirectory) {
             $ProtectedItem = Get-Item -LiteralPath $ProtectedDirectory -Force
             if (($ProtectedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -93,18 +144,13 @@ try {
         }
     }
 
-    $BroadPrincipals = @('*S-1-1-0', '*S-1-5-11', '*S-1-5-32-545')
     New-Item -ItemType Directory -Force -Path $DataDirectory | Out-Null
-    # Older previews could leave explicit deny entries on settings.json. Reset
-    # inherited ACLs first so those entries cannot survive an upgrade, then
-    # apply the service-only ACL to the directory and every existing file.
-    & "$env:SystemRoot\System32\icacls.exe" $DataDirectory /reset /T /C | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not reset stale ACLs under $DataDirectory (icacls exit code $LASTEXITCODE)."
-    }
-    & "$env:SystemRoot\System32\icacls.exe" $DataDirectory /inheritance:r /remove:g @BroadPrincipals /remove:d @BroadPrincipals /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not set protected SYSTEM/Administrators ACLs on $DataDirectory (icacls exit code $LASTEXITCODE)."
+    Protect-ServiceData -Path $DataDirectory
+    $SettingsPath = Join-Path $DataDirectory 'settings.json'
+    if (Test-Path -LiteralPath $SettingsPath) {
+        if (-not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) { throw "The settings path is not a file: $SettingsPath" }
+        $SettingsHandle = [System.IO.File]::Open($SettingsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $SettingsHandle.Dispose()
     }
     # Keep the old manifest until the new LocalSystem service has removed the
     # protected legacy copy. It is the authority for that one-time cleanup.
@@ -135,9 +181,7 @@ try {
     }
 
     $StartupErrorPath = Join-Path $DataDirectory 'service-startup-error.log'
-    # The service data directory is restricted to SYSTEM and Administrators.
-    # NSIS can run this hook with the installing user's token after changing
-    # the DACL, so access to an old diagnostic file is not a startup gate.
+    if (Test-Path -LiteralPath $StartupErrorPath -PathType Leaf) { Remove-Item -LiteralPath $StartupErrorPath -Force }
     Start-Service -Name $ServiceName -ErrorAction Stop
     $RunningService = Get-Service -Name $ServiceName
     $RunningService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
@@ -152,5 +196,12 @@ try {
             [Console]::Error.WriteLine("Service startup diagnostic is protected from the installer token: {0}", $_.Exception.Message)
         }
     }
+    try {
+        $StartupEvent = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $StartupAttempt } -MaxEvents 100 -ErrorAction Stop |
+            Where-Object { $_.ProviderName -eq 'EasyNetBalance' -and $_.Id -eq 4096 } | Select-Object -First 1
+        if ($StartupEvent) {
+            [Console]::Error.WriteLine("Windows service startup event: {0}", (($StartupEvent.Properties | ForEach-Object { $_.Value }) -join ' '))
+        }
+    } catch { }
     exit 1
 }

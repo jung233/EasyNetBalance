@@ -33,11 +33,10 @@ pub(super) struct MihomoCore {
 }
 
 impl MihomoCore {
-    pub(super) fn new(data_dir: PathBuf, logs: Arc<Mutex<VecDeque<LogEntry>>>) -> Self {
+    pub(super) fn new(data_dir: PathBuf, logs: Arc<Mutex<VecDeque<LogEntry>>>) -> Result<Self, String> {
         let working = data_dir.join("mihomo");
-        let binary = std::env::current_exe().ok().and_then(|path| path.parent().map(|p| p.join("resources").join("core").join("mihomo.exe")))
-            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files\EasyNetBalance\resources\core\mihomo.exe"));
-        Self { config_path: working.join("config.yaml"), data_dir: working, binary, child: None, controller: None, secret: None, version: None, last_exit_code: None, started_at: None, generated_yaml: String::new(), logs }
+        let binary = super::paths::application_directory()?.join("resources").join("core").join("mihomo.exe");
+        Ok(Self { config_path: working.join("config.yaml"), data_dir: working, binary, child: None, controller: None, secret: None, version: None, last_exit_code: None, started_at: None, generated_yaml: String::new(), logs })
     }
 
     pub(super) fn is_running(&self) -> bool { self.child.is_some() }
