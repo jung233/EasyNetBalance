@@ -23,7 +23,7 @@ EasyNetBalance 不会把两条线路合并成一条连接的带宽，也不会�
 EasyNetBalance-<version>-win-x64-setup.exe
 ```
 
-安装器会请求管理员权限，将 EasyNetBalance 安装到 `<InstallRoot>`，并把 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service。安装完成后启动已安装的 EasyNetBalance 应用即可打开管理界面。UI 和服务使用同一个可执行文件；关闭 UI 不会停止路由服务。
+安装器会请求管理员权限，将 EasyNetBalance 安装到 `<InstallRoot>`，并把 `EasyNetBalance.exe --service` 注册为自动启动的 `EasyNetBalance` Windows Service。安装完成后启动已安装的 EasyNetBalance 应用即可打开管理界面。UI 和服务使用同一个可执行文件。关闭应用时会停止路由、结束它启动的 Mihomo，并等待后台服务退出；若无法确认清理完成，窗口会保留并显示错误。再次打开应用会启动服务，Windows 可能请求管理员批准。
 
 `<InstallRoot>` 表示安装器中选择的目录。核心相对于正在运行的可执行文件定位，服务数据通过 Windows CommonApplicationData 系统目录 API 定位，代码不假定盘符或绝对安装位置。
 

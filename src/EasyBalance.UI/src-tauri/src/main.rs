@@ -3,9 +3,18 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod backend;
+mod service_lifecycle;
+
+#[derive(Clone, Default)]
+struct ExitState {
+    requested: std::sync::Arc<AtomicBool>,
+    complete: std::sync::Arc<AtomicBool>,
+}
 
 #[derive(Clone)]
 struct IpcGate(std::sync::Arc<std::sync::Mutex<()>>);
@@ -23,12 +32,20 @@ async fn ipc_call(
     method: String,
     payload: Option<Value>,
     gate: State<'_, IpcGate>,
+    exit: State<'_, ExitState>,
 ) -> Result<Value, String> {
+    if exit.requested.load(Ordering::SeqCst) {
+        return Err("EasyNetBalance is shutting down.".to_owned());
+    }
     let gate = gate.inner().0.clone();
+    let exit = exit.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = gate
             .lock()
             .map_err(|_| "The service bridge is unavailable.".to_owned())?;
+        if exit.requested.load(Ordering::SeqCst) {
+            return Err("EasyNetBalance is shutting down.".to_owned());
+        }
         call_service(&method, payload.unwrap_or(Value::Null))
     })
     .await
@@ -217,6 +234,43 @@ fn call_service(_method: &str, _payload: Value) -> Result<Value, String> {
     Err("EasyNetBalance currently requires Windows to connect to its service.".to_owned())
 }
 
+fn shutdown_application() -> Result<(), String> {
+    // If the service is already stopped, closing the UI is still safe. A failed
+    // request is not permission to leave a running service behind.
+    let response = call_service("Shutdown", Value::Null);
+    match service_lifecycle::wait_stopped() {
+        Ok(()) => Ok(()),
+        Err(error) => Err(match response {
+            Ok(_) => error,
+            Err(request_error) => format!("{request_error}\n{error}"),
+        }),
+    }
+}
+
+fn request_exit(app: tauri::AppHandle) {
+    let state = app.state::<ExitState>().inner().clone();
+    if state.requested.swap(true, Ordering::SeqCst) { return; }
+    let gate = app.state::<IpcGate>().inner().0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = gate.lock()
+            .map_err(|_| "The service bridge is unavailable.".to_owned())
+            .and_then(|_guard| shutdown_application());
+        match result {
+            Ok(()) => {
+                state.complete.store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
+            Err(error) => {
+                state.requested.store(false, Ordering::SeqCst);
+                app.dialog().message(format!("Could not stop all EasyNetBalance background processes. The window will stay open so you can retry.\n\n{error}"))
+                    .title("EasyNetBalance shutdown failed")
+                    .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                    .show(|_| {});
+            }
+        }
+    });
+}
+
 fn main() {
     if std::env::args().skip(1).any(|argument| argument == "--service") {
         if let Err(error) = backend::run_service() {
@@ -225,10 +279,40 @@ fn main() {
         }
         return;
     }
-    tauri::Builder::default()
+    if std::env::args().skip(1).any(|argument| argument == "--start-service") {
+        std::process::exit(if service_lifecycle::start_helper().is_ok() { 0 } else { 1 });
+    }
+    if std::env::args().skip(1).any(|argument| argument == "--shutdown") {
+        std::process::exit(if shutdown_application().is_ok() { 0 } else { 1 });
+    }
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(IpcGate(std::sync::Arc::new(std::sync::Mutex::new(()))))
+        .manage(ExitState::default())
+        .setup(|app| {
+            if let Err(error) = service_lifecycle::ensure_running() {
+                app.dialog().message(error).title("EasyNetBalance service unavailable")
+                    .kind(tauri_plugin_dialog::MessageDialogKind::Error).show(|_| {});
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if !window.state::<ExitState>().complete.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    request_exit(window.app_handle().clone());
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![ipc_call, write_export])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running EasyNetBalance");
+    app.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            if !app.state::<ExitState>().complete.load(Ordering::SeqCst) {
+                api.prevent_exit();
+                request_exit(app.clone());
+            }
+        }
+    });
 }

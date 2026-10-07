@@ -60,7 +60,7 @@ impl MihomoCore {
     }
 
     pub(super) fn start(&mut self, settings: &Value, adapters: &Value) -> Result<(), String> {
-        if self.child.is_some() { self.stop(); }
+        if self.child.is_some() { self.stop_checked()?; }
         fs::create_dir_all(&self.data_dir).map_err(|e| format!("Could not create Mihomo working directory: {e}"))?;
         if !self.binary.is_file() { return Err(format!("Mihomo core was not found at {}.", self.binary.display())); }
         self.version = Command::new(&self.binary).arg("-v").output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
@@ -90,14 +90,38 @@ impl MihomoCore {
         self.start(settings, adapters)
     }
 
-    pub(super) fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            if let Ok(status) = child.wait() { self.last_exit_code = status.code(); }
-        }
+    pub(super) fn stop_checked(&mut self) -> Result<(), String> {
+        let Some(child) = self.child.as_mut() else {
+            self.started_at = None;
+            self.controller = None;
+            self.secret = None;
+            return Ok(());
+        };
+        let pid = child.id();
+        let status = match child.try_wait() {
+            Ok(Some(status)) => status,
+            Ok(None) => match child.kill() {
+                Ok(()) => child.wait().map_err(|error| format!("Could not wait for managed Mihomo process {pid} to exit: {error}"))?,
+                Err(kill_error) => match child.try_wait() {
+                    Ok(Some(status)) => status,
+                    Ok(None) => return Err(format!("Could not terminate managed Mihomo process {pid}: {kill_error}")),
+                    Err(wait_error) => return Err(format!("Could not terminate managed Mihomo process {pid}: {kill_error}; could not verify its state: {wait_error}")),
+                },
+            },
+            Err(error) => return Err(format!("Could not inspect managed Mihomo process {pid} before stopping it: {error}")),
+        };
+        self.last_exit_code = status.code();
+        self.child = None;
         self.started_at = None;
         self.controller = None;
         self.secret = None;
+        Ok(())
+    }
+
+    pub(super) fn stop(&mut self) {
+        if let Err(error) = self.stop_checked() {
+            self.log("Error", &format!("Could not stop managed Mihomo: {error}"));
+        }
     }
 
     pub(super) fn validate(&mut self, settings: &Value, adapters: &Value) -> Result<(), String> {
@@ -214,6 +238,13 @@ impl MihomoCore {
                     }
                 }
             });
+        }
+    }
+
+    fn log(&self, level: &str, message: &str) {
+        if let Ok(mut records) = self.logs.lock() {
+            records.push_back(LogEntry { timestamp: Utc::now(), level: level.to_owned(), source: "Mihomo".into(), message: message.to_owned() });
+            while records.len() > 500 { records.pop_front(); }
         }
     }
 }

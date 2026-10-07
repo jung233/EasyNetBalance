@@ -136,6 +136,7 @@ impl Runtime {
             "SetInterfaceUsability" => self.set_interface_usability(payload),
             "EnableRouting" => self.set_routing(true),
             "DisableRouting" => self.set_routing(false),
+            "Shutdown" => self.shutdown(),
             "RestartCore" => self.restart_core(),
             "ValidateConfig" => self.validate_config(),
             "TestInterface" => self.test_interface(payload),
@@ -495,9 +496,25 @@ impl Runtime {
         self.apply_draft(next)
     }
 
+    fn shutdown(&mut self) -> Result<Value, String> {
+        let mut next = self.settings.clone();
+        next["enabled"] = json!(false);
+        self.persist_settings_value(&next)?;
+        self.settings = next;
+        if let Err(error) = self.core.stop_checked() {
+            self.last_error = Some(error.clone());
+            self.log("Error", "Mihomo", &format!("Shutdown could not confirm Mihomo termination: {error}"));
+            return Err(error);
+        }
+        self.started_at = None;
+        self.active_routes.clear();
+        self.log("Information", "Service", "Shutdown requested; routing was disabled and Mihomo stopped.");
+        Ok(Value::Null)
+    }
+
     fn restart_core(&mut self) -> Result<Value, String> {
         let adapters = network::get_adapters(&self.settings)?;
-        self.core.stop();
+        self.core.stop_checked()?;
         self.start_core(&adapters)?;
         Ok(Value::Null)
     }
@@ -575,7 +592,7 @@ impl Runtime {
                 let primary = get_str(policy, "primaryInterfaceId").unwrap_or_default();
                 for family in ["IPv4", "IPv6"] { self.active_routes.insert((id.clone(), family.to_owned()), primary.clone()); }
             }
-        } else { self.core.stop(); self.started_at = None; }
+        } else { self.core.stop_checked()?; self.started_at = None; }
         self.persist_settings()?;
         self.log("Information", "Settings", "Configuration saved.");
         Ok(Value::Null)
@@ -642,9 +659,13 @@ impl Runtime {
     }
 
     fn persist_settings(&self) -> Result<(), String> {
+        self.persist_settings_value(&self.settings)
+    }
+
+    fn persist_settings_value(&self, settings: &Value) -> Result<(), String> {
         let path = self.data_dir.join("settings.json");
         let temp = self.data_dir.join("settings.json.tmp");
-        fs::write(&temp, serde_json::to_vec_pretty(&self.settings).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        fs::write(&temp, serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         replace_file(&temp, &path).map_err(|e| format!("Could not save settings: {e}"))
     }
 

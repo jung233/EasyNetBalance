@@ -23,7 +23,7 @@ Download and run the Windows x64 setup EXE from [GitHub Releases](https://github
 EasyNetBalance-<version>-win-x64-setup.exe
 ```
 
-The installer requests administrator privileges, installs EasyNetBalance under `<InstallRoot>`, and registers `EasyNetBalance.exe --service` as the automatic-start `EasyNetBalance` Windows Service. After installation, launch the installed EasyNetBalance app to open the management UI. The UI and service use the same executable; closing the UI does not stop routing.
+The installer requests administrator privileges, installs EasyNetBalance under `<InstallRoot>`, and registers `EasyNetBalance.exe --service` as the automatic-start `EasyNetBalance` Windows Service. After installation, launch the installed EasyNetBalance app to open the management UI. The UI and service use the same executable. Closing the application stops routing, terminates its Mihomo process, and waits for the background service to exit. The window stays open with an error if shutdown cannot be confirmed. Launching the app again starts the service; Windows may request administrator approval.
 
 `<InstallRoot>` is the directory selected in the installer. The core is located relative to the running executable; service data is located through Windows CommonApplicationData. No drive letter or absolute installation path is assumed.
 

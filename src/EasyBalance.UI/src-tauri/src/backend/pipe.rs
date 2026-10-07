@@ -57,7 +57,7 @@ fn service_main(_arguments: Vec<OsString>) {
                 let _ = std::fs::create_dir_all(&data_dir);
                 let _ = std::fs::write(data_dir.join("service-startup-error.log"), &error);
             }
-            report_startup_error(&error);
+            report_service_error(&format!("Service initialization failed: {error}"));
             let _ = status.set_service_status(ServiceStatus {
                 service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,
                 controls_accepted: ServiceControlAccept::empty(),
@@ -88,7 +88,7 @@ fn service_main(_arguments: Vec<OsString>) {
             if let Ok(mut runtime) = scheduler_runtime.lock() { let _ = runtime.tick(&scheduler_stop); }
         }
     });
-    let _ = serve_pipe(runtime, &stop, &stop_rx);
+    let _ = serve_pipe(runtime.clone(), &stop, &stop_rx);
     stop.store(true, Ordering::SeqCst);
     let _ = status.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
@@ -98,16 +98,29 @@ fn service_main(_arguments: Vec<OsString>) {
         wait_hint: Duration::from_secs(15), process_id: None,
     });
     let _ = scheduler.join();
+    // Runtime is still alive here, so stop its managed Mihomo child explicitly
+    // before the SCM sees Stopped. Dropping std::process::Child alone does not
+    // terminate a running process.
+    let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let exit_code = match runtime.core.stop_checked() {
+        Ok(()) => ServiceExitCode::Win32(0),
+        Err(error) => {
+            let message = format!("Service shutdown could not confirm Mihomo termination: {error}");
+            runtime.log("Error", "Mihomo", &message);
+            report_service_error(&message);
+            ServiceExitCode::ServiceSpecific(2)
+        }
+    };
     let _ = status.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS, current_state: ServiceState::Stopped,
         controls_accepted: ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::Win32(0), checkpoint: 0,
+        exit_code, checkpoint: 0,
         wait_hint: Duration::default(), process_id: None,
     });
 }
 
 #[cfg(windows)]
-fn report_startup_error(error: &str) {
+fn report_service_error(error: &str) {
     #[link(name = "advapi32")]
     extern "system" {
         fn RegisterEventSourceW(server: *const u16, source: *const u16) -> *mut c_void;
@@ -117,7 +130,7 @@ fn report_startup_error(error: &str) {
         fn DeregisterEventSource(handle: *mut c_void) -> i32;
     }
     let source: Vec<u16> = "EasyNetBalance".encode_utf16().chain(Some(0)).collect();
-    let message: Vec<u16> = format!("Service initialization failed: {error}").encode_utf16().chain(Some(0)).collect();
+    let message: Vec<u16> = error.encode_utf16().chain(Some(0)).collect();
     let strings = [message.as_ptr()];
     let handle = unsafe { RegisterEventSourceW(std::ptr::null(), source.as_ptr()) };
     if !handle.is_null() {
@@ -239,10 +252,15 @@ fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::R
         let mut file = unsafe { std::fs::File::from_raw_handle(handle) };
         match read_line(&mut file, stop) {
             Ok(Some(line)) => {
-                let response = match serde_json::from_str::<serde_json::Value>(&line) {
-                    Ok(request) => handle_request(&runtime, request),
-                    Err(error) => serde_json::json!({"success":false,"error":format!("Invalid request: {error}"),"payload":null}),
+                let (response, shutdown_request) = match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(request) => {
+                        let shutdown = request.get("method").and_then(serde_json::Value::as_str) == Some("Shutdown");
+                        (handle_request(&runtime, request), shutdown)
+                    }
+                    Err(error) => (serde_json::json!({"success":false,"error":format!("Invalid request: {error}"),"payload":null}), false),
                 };
+                let shutdown_succeeded = shutdown_request
+                    && response.get("success").and_then(serde_json::Value::as_bool) == Some(true);
                 let mut bytes = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
                 bytes.push(b'\n');
                 if bytes.len() > 64 * 1024 * 1024 { bytes = b"{\"success\":false,\"error\":\"Response exceeds 64 MiB.\",\"payload\":null}\n".to_vec(); }
@@ -253,12 +271,22 @@ fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::R
                     if okay == 0 || written == 0 { break; }
                     offset += written as usize;
                 }
+                let response_written = offset == bytes.len();
                 // File::flush is a no-op for an unbuffered File. A named pipe
                 // must drain before DisconnectNamedPipe discards unread bytes.
-                if let Err(error) = drain_response(&file, stop) {
-                    if let Ok(runtime) = runtime.lock() {
-                        runtime.log("Warning", "Control", &format!("Could not deliver the complete control response: {error}"));
+                let response_drained = match drain_response(&file, stop) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        if let Ok(runtime) = runtime.lock() {
+                            runtime.log("Warning", "Control", &format!("Could not deliver the complete control response: {error}"));
+                        }
+                        false
                     }
+                };
+                if shutdown_succeeded && response_written && response_drained {
+                    // The UI has received the successful response. Returning
+                    // lets service_main stop its scheduler before SCM Stopped.
+                    stop.store(true, Ordering::SeqCst);
                 }
             }
             Ok(None) => {},

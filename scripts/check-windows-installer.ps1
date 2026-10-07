@@ -68,6 +68,32 @@ try {
             [Console]::WriteLine("Control response verified: {0}, {1} characters.", $Method, $ResponseTask.Result.Length)
         } finally { $Pipe.Dispose() }
     }
+    $ServicePid = [int]$Configuration.ProcessId
+    $Application = Join-Path $InstallRoot 'EasyNetBalance.exe'
+    # Exercise WM_CLOSE on the real Tauri window, not just the headless helper.
+    $Shutdown = Start-Process -FilePath $Application -PassThru
+    $WindowDeadline = [DateTime]::UtcNow.AddSeconds(45)
+    do {
+        Start-Sleep -Milliseconds 250
+        $Shutdown.Refresh()
+        if ($Shutdown.HasExited) { throw 'The application exited before opening its window.' }
+    } while ($Shutdown.MainWindowHandle -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $WindowDeadline)
+    if ($Shutdown.MainWindowHandle -eq [IntPtr]::Zero) { throw 'The application did not open a window.' }
+    if (-not $Shutdown.CloseMainWindow()) { throw 'Could not request window close.' }
+    if (-not $Shutdown.WaitForExit(90000)) { Stop-Process -Id $Shutdown.Id -Force; throw 'Application shutdown timed out.' }
+    if ($Shutdown.ExitCode -ne 0) { throw 'Application shutdown reported failure.' }
+    $Service.Refresh()
+    if ($Service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped -or (Get-Process -Id $ServicePid -ErrorAction SilentlyContinue)) {
+        throw 'Application shutdown left its service process running.'
+    }
+    $AfterShutdown = [IO.File]::ReadAllText($SettingsPath) | ConvertFrom-Json
+    if ($AfterShutdown.enabled -or @($AfterShutdown.interfaceUsabilityOverrides.PSObject.Properties).Count -ne 80) { throw 'Shutdown lost settings or left routing enabled.' }
+    $Restart = Start-Process -FilePath $Application -ArgumentList '--start-service' -WindowStyle Hidden -PassThru
+    if (-not $Restart.WaitForExit(60000)) { Stop-Process -Id $Restart.Id -Force; throw 'Service restart timed out.' }
+    if ($Restart.ExitCode -ne 0) { throw 'Service restart reported failure.' }
+    $Service.Refresh()
+    if ($Service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) { throw 'The stopped service could not restart.' }
+    [Console]::WriteLine('Application lifecycle verified: closing the real UI persists disabled routing, UI and service processes exit, service restarts from the installed executable.')
     [Console]::WriteLine('Installer verified: custom directory with spaces, stale SYSTEM deny repaired, LocalSystem service running, settings preserved, complete large control responses, routing disabled.')
 } catch {
     try {
