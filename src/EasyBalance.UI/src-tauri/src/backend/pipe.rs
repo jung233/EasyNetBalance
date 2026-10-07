@@ -26,11 +26,14 @@ fn service_main(_arguments: Vec<OsString>) {
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let stop = Arc::new(AtomicBool::new(false));
+    let probe_cancel = Arc::new(AtomicBool::new(false));
     let handler_stop = stop.clone();
+    let handler_probe_cancel = probe_cancel.clone();
     let status = service_control_handler::register("EasyNetBalance", move |control| {
         match control {
             ServiceControl::Stop | ServiceControl::Shutdown => {
                 handler_stop.store(true, Ordering::SeqCst);
+                handler_probe_cancel.store(true, Ordering::SeqCst);
                 let _ = stop_tx.send(());
                 ServiceControlHandlerResult::NoError
             }
@@ -81,15 +84,18 @@ fn service_main(_arguments: Vec<OsString>) {
 
     let scheduler_runtime = runtime.clone();
     let scheduler_stop = stop.clone();
+    let scheduler_probe_cancel = probe_cancel.clone();
     let scheduler = thread::spawn(move || {
         while !scheduler_stop.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_secs(1));
             if scheduler_stop.load(Ordering::SeqCst) { break; }
-            if let Ok(mut runtime) = scheduler_runtime.lock() { let _ = runtime.tick(&scheduler_stop); }
+            if scheduler_probe_cancel.load(Ordering::SeqCst) { continue; }
+            if let Ok(mut runtime) = scheduler_runtime.lock() { let _ = runtime.tick(&scheduler_probe_cancel); }
         }
     });
-    let _ = serve_pipe(runtime.clone(), &stop, &stop_rx);
+    let _ = serve_pipe(runtime.clone(), &stop, &probe_cancel, &stop_rx);
     stop.store(true, Ordering::SeqCst);
+    probe_cancel.store(true, Ordering::SeqCst);
     let _ = status.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: ServiceState::StopPending,
@@ -197,7 +203,7 @@ fn cleanup_legacy_core() -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::Receiver<()>) -> Result<(), String> {
+fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, probe_cancel: &AtomicBool, stop_rx: &mpsc::Receiver<()>) -> Result<(), String> {
     use std::os::windows::io::{AsRawHandle, FromRawHandle};
     use std::ptr;
 
@@ -255,12 +261,16 @@ fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::R
                 let (response, shutdown_request) = match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(request) => {
                         let shutdown = request.get("method").and_then(serde_json::Value::as_str) == Some("Shutdown");
+                        // Interrupt the current probe sweep before waiting for
+                        // Runtime's mutex. A failed shutdown can resume probing.
+                        if shutdown { probe_cancel.store(true, Ordering::SeqCst); }
                         (handle_request(&runtime, request), shutdown)
                     }
                     Err(error) => (serde_json::json!({"success":false,"error":format!("Invalid request: {error}"),"payload":null}), false),
                 };
                 let shutdown_succeeded = shutdown_request
                     && response.get("success").and_then(serde_json::Value::as_bool) == Some(true);
+                if shutdown_request && !shutdown_succeeded { probe_cancel.store(false, Ordering::SeqCst); }
                 let mut bytes = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
                 bytes.push(b'\n');
                 if bytes.len() > 64 * 1024 * 1024 { bytes = b"{\"success\":false,\"error\":\"Response exceeds 64 MiB.\",\"payload\":null}\n".to_vec(); }
