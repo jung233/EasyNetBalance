@@ -79,9 +79,23 @@ try {
         if ($Shutdown.HasExited) { throw 'The application exited before opening its window.' }
     } while ($Shutdown.MainWindowHandle -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $WindowDeadline)
     if ($Shutdown.MainWindowHandle -eq [IntPtr]::Zero) { throw 'The application did not open a window.' }
+    $ProcessSnapshot = @(Get-CimInstance Win32_Process)
+    $OwnedIds = [Collections.Generic.HashSet[int]]::new()
+    [void]$OwnedIds.Add($Shutdown.Id)
+    do {
+        $FoundChild = $false
+        foreach ($Process in $ProcessSnapshot) {
+            if ($OwnedIds.Contains([int]$Process.ParentProcessId) -and $OwnedIds.Add([int]$Process.ProcessId)) { $FoundChild = $true }
+        }
+    } while ($FoundChild)
+    $UiChildren = @($OwnedIds | Where-Object { $_ -ne $Shutdown.Id } | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
     if (-not $Shutdown.CloseMainWindow()) { throw 'Could not request window close.' }
     if (-not $Shutdown.WaitForExit(90000)) { Stop-Process -Id $Shutdown.Id -Force; throw 'Application shutdown timed out.' }
     if ($Shutdown.ExitCode -ne 0) { throw 'Application shutdown reported failure.' }
+    foreach ($Child in $UiChildren) {
+        if (-not $Child.WaitForExit(15000)) { throw "UI shutdown left its child process $($Child.Id) running." }
+        $Child.Dispose()
+    }
     $Service.Refresh()
     if ($Service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped -or (Get-Process -Id $ServicePid -ErrorAction SilentlyContinue)) {
         throw 'Application shutdown left its service process running.'
@@ -93,7 +107,7 @@ try {
     if ($Restart.ExitCode -ne 0) { throw 'Service restart reported failure.' }
     $Service.Refresh()
     if ($Service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) { throw 'The stopped service could not restart.' }
-    [Console]::WriteLine('Application lifecycle verified: closing the real UI persists disabled routing, UI and service processes exit, service restarts from the installed executable.')
+    [Console]::WriteLine('Application lifecycle verified: closing the real UI persists disabled routing, UI children and service processes exit, service restarts from the installed executable.')
     [Console]::WriteLine('Installer verified: custom directory with spaces, stale SYSTEM deny repaired, LocalSystem service running, settings preserved, complete large control responses, routing disabled.')
 } catch {
     try {
