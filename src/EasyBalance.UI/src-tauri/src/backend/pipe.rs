@@ -253,7 +253,13 @@ fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::R
                     if okay == 0 || written == 0 { break; }
                     offset += written as usize;
                 }
-                let _ = file.flush();
+                // File::flush is a no-op for an unbuffered File. A named pipe
+                // must drain before DisconnectNamedPipe discards unread bytes.
+                if let Err(error) = drain_response(&file, stop) {
+                    if let Ok(runtime) = runtime.lock() {
+                        runtime.log("Warning", "Control", &format!("Could not deliver the complete control response: {error}"));
+                    }
+                }
             }
             Ok(None) => {},
             Err(error) if error.raw_os_error() == Some(ERROR_NO_DATA as i32) => {},
@@ -264,6 +270,47 @@ fn serve_pipe(runtime: Arc<Mutex<Runtime>>, stop: &AtomicBool, stop_rx: &mpsc::R
         let _ = stop_rx.try_recv();
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn drain_response(file: &std::fs::File, stop: &AtomicBool) -> std::io::Result<()> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use std::ptr;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn FlushFileBuffers(handle: *mut c_void) -> i32;
+        fn GetCurrentProcess() -> *mut c_void;
+        fn GetCurrentThread() -> *mut c_void;
+        fn DuplicateHandle(source_process: *mut c_void, source: *mut c_void, target_process: *mut c_void,
+            target: *mut *mut c_void, access: u32, inherit: i32, options: u32) -> i32;
+        fn CancelSynchronousIo(thread: *mut c_void) -> i32;
+    }
+    let mut handle = ptr::null_mut();
+    let duplicated = unsafe {
+        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &mut handle, 0, 0, 2)
+    };
+    if duplicated == 0 { return Err(std::io::Error::last_os_error()); }
+    let serving_thread = unsafe { OwnedHandle::from_raw_handle(handle) };
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                match done_rx.recv_timeout(Duration::from_millis(50)) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {},
+                }
+                // A client that stops reading must not prevent service shutdown.
+                if stop.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                    unsafe { CancelSynchronousIo(serving_thread.as_raw_handle()); }
+                }
+            }
+        });
+        let okay = unsafe { FlushFileBuffers(file.as_raw_handle()) };
+        let result = if okay != 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) };
+        let _ = done_tx.send(());
+        result
+    })
 }
 
 #[cfg(windows)]

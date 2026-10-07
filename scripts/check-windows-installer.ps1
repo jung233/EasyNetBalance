@@ -20,7 +20,9 @@ $Before = Get-Date
 try {
     New-Item -ItemType Directory -Path $DataDirectory | Out-Null
     $SettingsPath = Join-Path $DataDirectory 'settings.json'
-    [IO.File]::WriteAllText($SettingsPath, '{"enabled":false}')
+    $FixtureSettings = @{ enabled = $false; interfaceUsabilityOverrides = @{} }
+    1..80 | ForEach-Object { $FixtureSettings.interfaceUsabilityOverrides[[guid]::NewGuid().ToString()] = $true }
+    [IO.File]::WriteAllText($SettingsPath, ($FixtureSettings | ConvertTo-Json -Depth 4 -Compress))
     $SettingsHash = (Get-FileHash -LiteralPath $SettingsPath -Algorithm SHA256).Hash
     $StaleAcl = [System.Security.AccessControl.FileSecurity]::new()
     $StaleAcl.SetSecurityDescriptorSddlForm('D:P(D;;FA;;;SY)(A;;FA;;;BA)', [System.Security.AccessControl.AccessControlSections]::Access)
@@ -44,21 +46,29 @@ try {
     }
     if ((Get-FileHash -LiteralPath $SettingsPath -Algorithm SHA256).Hash -cne $SettingsHash) { throw 'Installing or starting the service changed saved settings bytes.' }
 
-    $Pipe = [IO.Pipes.NamedPipeClientStream]::new('.', 'EasyBalance.Control.v1', [IO.Pipes.PipeDirection]::InOut)
-    try {
-        $Pipe.Connect(10000)
-        $Writer = [IO.StreamWriter]::new($Pipe, [Text.UTF8Encoding]::new($false))
-        $Writer.AutoFlush = $true
-        $Reader = [IO.StreamReader]::new($Pipe, [Text.Encoding]::UTF8)
-        $Writer.WriteLine('{"method":"GetStatus","payload":null}')
-        $ResponseTask = $Reader.ReadLineAsync()
-        if (-not $ResponseTask.Wait(10000)) { throw 'The service control pipe did not reply within 10 seconds.' }
-        $Response = $ResponseTask.Result | ConvertFrom-Json
-        if (-not $Response.success -or $null -eq $Response.payload -or $Response.payload.routingEnabled) {
-            throw "Unexpected service startup response: $($ResponseTask.Result)"
-        }
-    } finally { $Pipe.Dispose() }
-    [Console]::WriteLine('Installer verified: custom directory with spaces, stale SYSTEM deny repaired, LocalSystem service running, settings preserved, control pipe responds, routing disabled.')
+    foreach ($Method in @('GetStatus', 'GetSettings', 'GetAdapters')) {
+        $Pipe = [IO.Pipes.NamedPipeClientStream]::new('.', 'EasyBalance.Control.v1', [IO.Pipes.PipeDirection]::InOut)
+        try {
+            $Pipe.Connect(10000)
+            $Writer = [IO.StreamWriter]::new($Pipe, [Text.UTF8Encoding]::new($false))
+            $Writer.AutoFlush = $true
+            $Reader = [IO.StreamReader]::new($Pipe, [Text.Encoding]::UTF8)
+            $Writer.WriteLine((@{method = $Method; payload = $null} | ConvertTo-Json -Compress))
+            $ResponseTask = $Reader.ReadLineAsync()
+            if (-not $ResponseTask.Wait(10000)) { throw "$Method did not reply within 10 seconds." }
+            $Response = $ResponseTask.Result | ConvertFrom-Json
+            if (-not $Response.success -or $null -eq $Response.payload) {
+                throw "Unexpected $Method response: $($ResponseTask.Result)"
+            }
+            if ($Method -eq 'GetStatus' -and $Response.payload.routingEnabled) { throw 'The fixture must keep routing disabled.' }
+            if ($Method -eq 'GetSettings' -and
+                ($ResponseTask.Result.Length -le 1024 -or @($Response.payload.interfaceUsabilityOverrides.PSObject.Properties).Count -ne 80)) {
+                throw 'The large settings response was incomplete or lost fixture entries.'
+            }
+            [Console]::WriteLine("Control response verified: {0}, {1} characters.", $Method, $ResponseTask.Result.Length)
+        } finally { $Pipe.Dispose() }
+    }
+    [Console]::WriteLine('Installer verified: custom directory with spaces, stale SYSTEM deny repaired, LocalSystem service running, settings preserved, complete large control responses, routing disabled.')
 } catch {
     try {
         Get-WinEvent -FilterHashtable @{LogName = 'Application'; StartTime = $Before} -MaxEvents 100 -ErrorAction Stop |
